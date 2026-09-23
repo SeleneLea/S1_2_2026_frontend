@@ -1,9 +1,12 @@
 // BoardPage.jsx
 import { useCallback, useEffect, useState, useRef } from "react";
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Workflow, ArrowLeft, ChevronRight, Plus, StickyNote, Undo2, Redo2, Sparkles, SlidersHorizontal, Download, Wrench, Braces, Code2, Database, FileCode2, ArrowUpRight, Check, Save, Layers, Maximize2, Minus, Sun, Moon, PanelRightClose, PanelRightOpen, Grid2X2, X, ShieldCheck, Users, LockKeyhole, UnlockKeyhole, CloudOff } from 'lucide-react';
+import useTheme from '../hooks/useTheme';
 import {
   Background,
-  Controls,
+  useReactFlow,
+  useViewport,
   ReactFlow,
   ReactFlowProvider,
   addEdge,
@@ -42,6 +45,20 @@ const BoardPage = () => {
   const [tourEditorAbierto, setTourEditorAbierto] = useState(false);
   const { id: boardId } = useParams();
   const [currentUser, setCurrentUser] = useState(null);
+  const [boardTitle, setBoardTitle] = useState('Mi diagrama');
+  const [studioPanel, setStudioPanel] = useState('design');
+  const [panelOpen, setPanelOpen] = useState(() => !window.matchMedia('(max-width: 900px)').matches);
+  const [showGrid, setShowGrid] = useState(true);
+  const [canvasLocked, setCanvasLocked] = useState(false);
+  const { isDark, toggleTheme } = useTheme();
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const { zoom } = useViewport();
+  const openStudioPanel = useCallback((panel) => { setStudioPanel(panel); setPanelOpen(true); }, []);
+  const revealTourPanel = useCallback((step) => {
+    if (/sql|springboot|postman|flutter|xmi/.test(step?.selector || '')) openStudioPanel('export');
+    else if (step?.selector?.includes('panel-lateral')) openStudioPanel('design');
+    else if (window.matchMedia('(max-width: 900px)').matches) setPanelOpen(false);
+  }, [openStudioPanel]);
 
   // Try to fetch profile from backend; fallback to token in localStorage
   useEffect(() => {
@@ -241,22 +258,6 @@ const BoardPage = () => {
   // Estado para controlar modificaciones de IA
   const [aiModificationActive, setAiModificationActive] = useState(false);
 
-  const ActiveUsers = ({ users }) => (
-    <div className="flex flex-wrap gap-2">
-      {users.map((user, index) => (
-        <div
-          key={index}
-          className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs flex items-center"
-        >
-          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-          {user}
-        </div>
-      ))}
-    </div>
-  );
-
-  
-
   // Owner metadata for this sala (to determine host/owner)
   const [ownerId, setOwnerId] = useState(null);
   const [ownerEmail, setOwnerEmail] = useState(null);
@@ -267,13 +268,19 @@ const BoardPage = () => {
     (async () => {
       if (!boardId) return;
       try {
-        const res = await fetch(`${import.meta.env.VITE_WS_URL || window.location.origin}/apis/sala/${boardId}`, { credentials: 'include' });
+        const metadataUrl = `${import.meta.env.VITE_WS_URL || window.location.origin}/apis/sala/${boardId}`;
+        let res = await fetch(metadataUrl, { credentials: 'include' });
         if (!mounted) return;
-        if (!res.ok) return; // ignore
+        if (res.status === 401 || res.status === 403) {
+          const token = localStorage.getItem('token');
+          if (token) res = await fetch(metadataUrl, { credentials: 'include', headers: { Authorization: `Bearer ${token}` } });
+        }
+        if (!mounted || !res.ok) return;
         const payload = await res.json().catch(() => null);
         const dataRows = payload && payload.data ? payload.data : payload;
         const row = Array.isArray(dataRows) && dataRows.length > 0 ? dataRows[0] : (dataRows || {});
         if (row) {
+          setBoardTitle(row.title || row.description || row.name || row.titulo || 'Mi diagrama');
           // The DB uses userId as owner; try multiple casings
           if (row.userid !== undefined) setOwnerId(row.userid);
           else if (row.userId !== undefined) setOwnerId(row.userId);
@@ -783,6 +790,52 @@ const BoardPage = () => {
     }
   };
 
+  // Proyecto de Enterprise Architect (.EAP) con el diagrama de clases dibujado en el lienzo
+  const handleExportEAP = async () => {
+    try {
+      marcarTarea('exportar');
+      if (!nodes.length) {
+        Swal.fire({ icon: 'warning', title: 'Diagrama vacío', text: 'No hay clases para exportar a Enterprise Architect.' });
+        return;
+      }
+      Swal.fire({ title: 'Generando proyecto de Enterprise Architect...', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading() });
+
+      const base = import.meta.env.VITE_API_BASE || import.meta.env.VITE_WS_URL || window.location.origin;
+      const resp = await fetch(`${base}/apis/crearPagina/exportarEAP/${boardId}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+
+      if (!resp.ok) {
+        Swal.close();
+        const mensaje = motivoDelServidor(await leerJSON(resp)) || mensajeDeError(errorDeRespuesta(resp, null), 'No se pudo generar el archivo .EAP.');
+        Swal.fire({ icon: 'error', title: 'No se pudo exportar a EAP', text: mensaje });
+        return;
+      }
+
+      const blob = await resp.blob();
+      const disp = resp.headers.get('content-disposition') || '';
+      const m = /filename="?([^";]+)"?/.exec(disp);
+      const nombre = m ? m[1] : `diagrama-${boardId}.eap`;
+      const { saveAs } = await import('file-saver');
+      saveAs(blob, nombre);
+
+      Swal.close();
+      Swal.fire({
+        icon: 'success',
+        title: '✅ Proyecto de Enterprise Architect listo',
+        html: `<div class="text-left"><p>Archivo: <strong>${nombre}</strong></p><p class="text-sm text-gray-600 mt-2">Ábrelo en Enterprise Architect con <strong>Open Project</strong>. En el Project Browser: Model → el paquete del tablero → Modelo de clases → el diagrama ya está dibujado.</p></div>`,
+        confirmButtonText: 'Perfecto'
+      });
+    } catch (error) {
+      console.error('handleExportEAP error:', error);
+      Swal.close();
+      Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo generar el archivo .EAP.' });
+    }
+  };
+
+  // Colección de Postman + guía COMO_LLAMAR_LA_API.txt. La arma el servidor leyendo el backend
+  // que genera este tablero: rutas, campos, tipos y cuentas de prueba coinciden con el proyecto.
   const handleGeneratePostmanCollection = async () => {
     try {
       const validNodes = nodes.filter(node => node.data?.className && node.data.className.trim() !== '');
@@ -790,125 +843,38 @@ const BoardPage = () => {
         Swal.fire({ icon: 'warning', title: 'Diagrama vacío', text: 'No hay clases para generar la colección Postman.' });
         return;
       }
+      Swal.fire({ title: 'Generando colección de Postman...', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading() });
 
-      const baseUrlVar = '{{baseUrl}}';
-      const authVar = '{{authToken}}';
-
-      const collection = {
-        info: {
-          name: `UML - ${boardId || 'collection'}`,
-          schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
-        },
-        item: [],
-        variable: [
-          // El backend GENERADO corre en 8080 (ver application.properties del ZIP).
-          // Antes apuntaba a VITE_API_BASE, que es la propia herramienta -> 404 en todo.
-          { key: 'baseUrl', value: 'http://localhost:8080' },
-          { key: 'authToken', value: '' }
-        ]
-      };
-
-      const sampleValueForType = (type) => {
-        if (!type) return '';
-        const t = String(type).toLowerCase();
-        if (t.includes('string')) return 'example';
-        if (t.includes('int') || t.includes('long') || t === 'number') return 1;
-        // Decimales: antes devolvian 'example' (texto) y el backend respondia 400
-        if (t.includes('double') || t.includes('float') || t.includes('decimal') || t.includes('bigdecimal')) return 10.5;
-        if (t.includes('bool')) return true;
-        if (t.includes('date')) return new Date().toISOString();
-        return 'example';
-      };
-
-      const buildSampleBody = (attributes) => {
-        const obj = {};
-        if (!attributes || !Array.isArray(attributes)) return obj;
-        attributes.forEach(attr => {
-          // attr puede ser 'name: type' o un objeto
-          if (typeof attr === 'string' && attr.includes(':')) {
-            const [rawName, rawType] = attr.split(':').map(s => s.trim());
-            const name = rawName.replace(/^[+\-#]/, '').trim();
-            obj[name] = sampleValueForType(rawType);
-          } else if (typeof attr === 'object' && attr.name) {
-            obj[attr.name] = sampleValueForType(attr.type || 'string');
-          }
-        });
-        return obj;
-      };
-
-      for (const node of validNodes) {
-        const className = node.data.className;
-        const path = `api/${className.toLowerCase()}`;
-        const attributes = node.data.attributes || [];
-        const sampleBody = buildSampleBody(attributes);
-
-        const folder = {
-          name: className,
-          item: []
-        };
-
-        // GET all
-        folder.item.push({
-          name: `GET ${path}`,
-          request: {
-            method: 'GET',
-            header: [ { key: 'Authorization', value: authVar, disabled: false } ],
-            url: { raw: `${baseUrlVar}/${path}`, host: [ baseUrlVar ], path: [ path ] }
-          }
-        });
-
-        // GET by id
-        folder.item.push({
-          name: `GET ${path}/{id}`,
-          request: {
-            method: 'GET',
-            header: [ { key: 'Authorization', value: authVar } ],
-            url: { raw: `${baseUrlVar}/${path}/{{id}}`, host: [ baseUrlVar ], path: [ path, '{{id}}' ] }
-          }
-        });
-
-        // POST
-        folder.item.push({
-          name: `POST ${path}`,
-          request: {
-            method: 'POST',
-            header: [ { key: 'Content-Type', value: 'application/json' }, { key: 'Authorization', value: authVar } ],
-            body: { mode: 'raw', raw: JSON.stringify(sampleBody, null, 2) },
-            url: { raw: `${baseUrlVar}/${path}`, host: [ baseUrlVar ], path: [ path ] }
-          }
-        });
-
-        // PUT
-        folder.item.push({
-          name: `PUT ${path}/{id}`,
-          request: {
-            method: 'PUT',
-            header: [ { key: 'Content-Type', value: 'application/json' }, { key: 'Authorization', value: authVar } ],
-            body: { mode: 'raw', raw: JSON.stringify(sampleBody, null, 2) },
-            url: { raw: `${baseUrlVar}/${path}/{{id}}`, host: [ baseUrlVar ], path: [ path, '{{id}}' ] }
-          }
-        });
-
-        // DELETE
-        folder.item.push({
-          name: `DELETE ${path}/{id}`,
-          request: {
-            method: 'DELETE',
-            header: [ { key: 'Authorization', value: authVar } ],
-            url: { raw: `${baseUrlVar}/${path}/{{id}}`, host: [ baseUrlVar ], path: [ path, '{{id}}' ] }
-          }
-        });
-
-        collection.item.push(folder);
+      const base = import.meta.env.VITE_API_BASE || import.meta.env.VITE_WS_URL || window.location.origin;
+      const resp = await fetch(`${base}/apis/crearPagina/exportarPostman/${boardId}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (!resp.ok) {
+        Swal.close();
+        const mensaje = motivoDelServidor(await leerJSON(resp)) || mensajeDeError(errorDeRespuesta(resp, null), 'No se pudo generar la colección de Postman.');
+        Swal.fire({ icon: 'error', title: 'No se pudo generar la colección de Postman', text: mensaje });
+        return;
       }
 
-      const blob = new Blob([JSON.stringify(collection, null, 2)], { type: 'application/json' });
-      const fileName = `postman-collection-uml-${boardId || 'collection'}.json`;
-      saveAs(blob, fileName);
-      Swal.fire({ icon: 'success', title: 'Colección Postman descargada', text: `Archivo: ${fileName}` });
+      const blob = await resp.blob();
+      const disp = resp.headers.get('content-disposition') || '';
+      const m = /filename="?([^";]+)"?/.exec(disp);
+      const nombre = m ? m[1] : `postman-${boardId}.zip`;
+      saveAs(blob, nombre);
 
+      Swal.close();
+      Swal.fire({
+        icon: 'success',
+        title: '✅ Colección de Postman lista',
+        html: `<div class="text-left"><p>Archivo: <strong>${nombre}</strong></p>
+          <p class="text-sm text-gray-600 mt-2">Trae la colección y <strong>COMO_LLAMAR_LA_API.txt</strong>, con los pasos, las cuentas de prueba y ejemplos con curl.</p>
+          <p class="text-sm text-gray-600 mt-2">En Postman: <strong>Import</strong> → el archivo .json → ejecuta <em>"0. Sesión → Iniciar sesión"</em> y el token queda guardado para todo lo demás.</p></div>`,
+        confirmButtonText: 'Perfecto'
+      });
     } catch (err) {
       console.error('Error generando colección Postman:', err);
+      Swal.close();
       Swal.fire({ icon: 'error', title: 'No se pudo generar la colección de Postman', text: mensajeDeError(err, 'Intenta de nuevo.') });
     }
   };
@@ -1490,290 +1456,93 @@ const BoardPage = () => {
 
   
 
+  const saveStudio = async () => {
+    try {
+      setSaving(true);
+      Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      const resp = await guardarEstado({ nodes, edges });
+      Swal.close();
+      if (resp && resp.success) {
+        setUnsaved(false);
+        Swal.fire({ icon: 'success', title: 'Guardado', timer: 1200, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(new Error((resp && resp.error) || ''), 'El servidor no confirmó el guardado. Revisa tu conexión e intenta de nuevo.') });
+      }
+    } catch (err) {
+      console.error('Guardar button error', err);
+      Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(err, 'Revisa tu conexión e intenta de nuevo.') });
+    } finally { setSaving(false); }
+  };
+  const selectStudioNode = (node) => { handleNodeSelection(node); openStudioPanel('design'); };
+  const selectStudioEdge = (edge) => { handleEdgeSelection(edge); openStudioPanel('design'); };
+  const panelTitles = { design: 'Diseño', assistant: 'Asistente IA', tools: 'Herramientas', export: 'Exportar' };
+  const exportOptions = [
+    { id: 'springboot', name: 'Spring Boot', detail: 'Tu backend, listo para construir.', icon: Code2, action: handleGenerateCompleteProject, tag: 'JAVA' },
+    { id: 'flutter', name: 'Flutter', detail: 'Lleva tu idea a una aplicación.', icon: Layers, action: handleGenerateFlutterProject, tag: 'DART' },
+    { id: 'sql', name: 'Base de datos', detail: 'Tablas y relaciones en PostgreSQL.', icon: Database, action: handleExportSQL, tag: 'SQL' },
+    { id: 'postman', name: 'Postman', detail: 'Una colección para probar tu API.', icon: Braces, action: handleGeneratePostmanCollection, tag: 'JSON' },
+    { id: 'xmi', name: 'Diagrama XMI', detail: 'Continúa en otras herramientas UML.', icon: FileCode2, action: handleExportXMI, tag: 'XMI' },
+    { id: 'eap', name: 'Enterprise Architect', detail: 'Tu proyecto con su distribución.', icon: Workflow, action: handleExportEAP, tag: 'EAP' },
+  ];
+
   return (
-  <div className="flex h-[calc(100vh-4rem)]">
-    {/* Sidebar a la izquierda */}
-    <LeftSidebar
-      addNode={addNode}
-      selectedNode={selectedNode}
-      selectedEdge={selectedEdge}
-      editingData={editingData}
-      editingEdge={editingEdge}
-      handleInputChange={handleInputChange}
-      handleArrayChange={handleArrayChange}
-      handleInputChangeEdge={handleInputChangeEdge}
-      updateNodeData={updateNodeData}
-      updateEdgeData={updateEdgeData}
-      handleCreateAssociationClass={handleCreateAssociationClass}
-      setSelectedEdge={setSelectedEdge}
-      setEditingEdge={setEditingEdge}
-    />
+    <main className={`studio ${panelOpen ? 'studio-panel-open' : ''}`}>
+      <aside className="studio-rail" aria-label="Navegación del estudio">
+        <Link to="/board" className="studio-mark" aria-label="Volver a mis diagramas" title="Mis diagramas"><Workflow size={25} strokeWidth={1.6} /></Link>
+        <div className="studio-rail-divider" />
+        <nav className="studio-rail-nav" aria-label="Paneles del editor">
+          {[['design', SlidersHorizontal, 'Diseño'], ['assistant', Sparkles, 'Asistente'], ['tools', Wrench, 'Acciones'], ['export', Download, 'Exportar']].map(([id, Icon, label]) => <button key={id} className={`studio-rail-button ${panelOpen && studioPanel === id ? 'is-active' : ''}`} onClick={() => openStudioPanel(id)} aria-pressed={panelOpen && studioPanel === id} aria-label={panelTitles[id]} title={panelTitles[id]}><Icon size={21} strokeWidth={1.6} /><span>{label}</span></button>)}
+        </nav>
+        <div className="studio-rail-bottom"><button className="studio-rail-button" onClick={toggleTheme} aria-label={isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'} title={isDark ? 'Tema claro' : 'Tema oscuro'}>{isDark ? <Sun size={20} /> : <Moon size={20} />}</button><BotonAyuda embedded onRelanzarTour={() => setTourEditorAbierto(true)} /><span className="studio-version">UML 2.5</span></div>
+      </aside>
 
-    {/* Contenido principal a la derecha */}
-    <div className="flex-1 flex flex-col">
-      {currentUser && !conectado && (
-        <div className="px-3 py-1.5 text-xs bg-amber-100 text-amber-900 border-b border-amber-200">
-          Sin conexión con el servidor: los cambios se guardan en este equipo y se sincronizan al reconectar. La IA local sigue disponible.
+      <section className="studio-workspace">
+        <header className="studio-header">
+          <div className="studio-document"><div className="studio-breadcrumb"><Link to="/board"><ArrowLeft size={12} /> Mis diagramas</Link><ChevronRight size={11} /><span>Estudio UML</span></div><h1 title={boardTitle}>{boardTitle}<span className="studio-document-type">DIAGRAMA DE CLASES</span></h1></div>
+          <div className="studio-header-actions"><span className="studio-save-state">{conectado ? <Check size={13} /> : <CloudOff size={13} />}{saving ? 'Guardando…' : !conectado ? 'Copia local' : unsaved ? 'Cambios pendientes' : 'Al día'}</span><span className="studio-user avatar" title={currentUser?.name || currentUser?.email}>{(currentUser?.name || currentUser?.email || 'T').charAt(0).toUpperCase()}</span><button className="studio-export-trigger" onClick={() => openStudioPanel('export')}><Download size={16} /><span>Exportar</span></button><button className="btn-primary studio-save" disabled={!unsaved || saving} onClick={saveStudio}><Save size={15} /><span>{saving ? 'Guardando…' : 'Guardar'}</span></button></div>
+        </header>
+
+        <div className="studio-body">
+          <section className="studio-stage" aria-label="Área de diseño">
+            <div className="studio-stage-heading"><div><span className="eyebrow">ESPACIO PARA CREAR</span><h2>Conecta tus ideas.</h2></div><div className="studio-stage-actions"><button className="studio-verify" aria-label="Revisar diagrama" onClick={handleVerifyDiagramAI} data-tour="verificar"><ShieldCheck size={16} /><span>Revisar diagrama</span></button><button className="icon-button" onClick={() => setPanelOpen(!panelOpen)} title={panelOpen ? 'Ampliar el lienzo' : 'Mostrar panel'} aria-label={panelOpen ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}>{panelOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}</button></div></div>
+            {currentUser && !conectado && <div className="studio-offline"><CloudOff size={14} /><span>Estás trabajando en este equipo. Los cambios se sincronizarán al reconectar.</span></div>}
+            <div className="studio-canvas-shell">
+              <div className="studio-canvas-label"><span className="status-dot" /> LIENZO PRINCIPAL <span>/ 01</span></div>
+              <div className="studio-canvas">
+                <ReactFlow data-tour="lienzo" nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => selectStudioNode(node)} onEdgeClick={(_, edge) => selectStudioEdge(edge)} nodeTypes={nodeTypes} edgeTypes={edgeTypes} defaultEdgeOptions={defaultEdgeOptions} connectionMode="loose" isValidConnection={(connection) => connection.source && connection.target} nodesDraggable={!canvasLocked} nodesConnectable={!canvasLocked} elementsSelectable={!canvasLocked} fitView fitViewOptions={{ padding: .28 }} minZoom={0.15}>
+                  {showGrid && <Background color="var(--canvas-dot)" gap={24} size={1} />}
+                </ReactFlow>
+                {nodes.length === 0 && <div className="studio-empty-canvas"><div className="studio-empty-art" aria-hidden="true"><Braces size={35} strokeWidth={1.3} /><span /><Workflow size={32} strokeWidth={1.3} /></div><span className="eyebrow">EL COMIENZO DE ALGO GRANDE</span><h3>Tu próxima idea,<br /><em>en este lienzo.</em></h3><p>Añade tu primera clase o dale una idea al asistente.<br />El resto empieza a conectar.</p><button onClick={() => openStudioPanel('assistant')} className="studio-empty-ai"><Sparkles size={15} /> Crear con el asistente <ArrowUpRight size={15} /></button></div>}
+              </div>
+              <div className="studio-canvas-footer"><span><Braces size={13} /> {nodes.filter(n => !n.data?.isNote).length} clases<span className="studio-stat-divider" />{edges.length} relaciones</span><span className="studio-canvas-tip">Arrastra desde un punto para conectar</span><div className="studio-zoom"><button aria-label="Alejar" title="Alejar" onClick={() => zoomOut({ duration: 200 })}><Minus size={14} /></button><span>{Math.round(zoom * 100)}%</span><button aria-label="Acercar" title="Acercar" onClick={() => zoomIn({ duration: 200 })}><Plus size={14} /></button><button aria-label="Ajustar diagrama a la vista" title="Ajustar a la vista" onClick={() => fitView({ padding: .2, duration: 250 })}><Maximize2 size={14} /></button><button aria-label="Mostrar cuadrícula" title="Mostrar cuadrícula" aria-pressed={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid2X2 size={14} /></button><button aria-label={canvasLocked ? "Desbloquear edición del lienzo" : "Bloquear edición del lienzo"} title={canvasLocked ? "Desbloquear lienzo" : "Bloquear lienzo"} aria-pressed={canvasLocked} onClick={() => setCanvasLocked(!canvasLocked)}>{canvasLocked ? <LockKeyhole size={14} /> : <UnlockKeyhole size={14} />}</button></div></div>
+            </div>
+
+            <div className="studio-bottom"><span className="studio-bottom-note"><span className="status-dot" /> {activeUsers.length > 1 ? `${activeUsers.length} personas creando` : 'A tu ritmo. A tu manera.'}</span><div className="studio-creation-bar"><button className="studio-add-class" data-tour="nueva-clase" onClick={() => { addNode(); openStudioPanel('design'); }}><Plus size={18} /><span>Nueva clase</span></button><button className="studio-add-note" aria-label="Nueva nota" title="Nueva nota" onClick={() => addNode('noteNode', { text: 'Nueva nota...\nHaz clic para editar', isNote: true })}><StickyNote size={18} /><span>Nota</span></button><span className="studio-tool-divider" /><div className="studio-history" data-tour="deshacer"><button onClick={deshacer} disabled={!puedeDeshacer} aria-label="Deshacer" title="Deshacer (Ctrl+Z)"><Undo2 size={17} /></button><button onClick={rehacer} disabled={!puedeRehacer} aria-label="Rehacer" title="Rehacer (Ctrl+Y)"><Redo2 size={17} /></button></div></div><span className="studio-shortcut"><kbd>Ctrl</kbd> + <kbd>Z</kbd> para deshacer</span></div>
+          </section>
+
+          {panelOpen && <button className="studio-panel-backdrop" onClick={() => setPanelOpen(false)} aria-label="Cerrar panel lateral" />}
+          <aside className="studio-inspector" hidden={!panelOpen} aria-label="Panel del estudio">
+            <div className="studio-inspector-header"><span>{panelTitles[studioPanel]}</span><button onClick={() => setPanelOpen(false)} className="icon-button" aria-label="Cerrar panel del estudio"><X size={17} /></button></div>
+            <div className="studio-panel-tabs" role="tablist" aria-label="Contenido del panel"><button role="tab" id="studio-tab-design" aria-controls="studio-design" aria-selected={studioPanel === 'design'} onClick={() => setStudioPanel('design')}><SlidersHorizontal size={14} /> Diseño</button><button role="tab" id="studio-tab-assistant" aria-controls="studio-assistant" aria-selected={studioPanel === 'assistant'} onClick={() => setStudioPanel('assistant')}><Sparkles size={14} /> Asistente</button><button role="tab" id="studio-tab-tools" aria-controls="studio-tools" aria-selected={studioPanel === 'tools'} onClick={() => setStudioPanel('tools')}><Wrench size={14} /> Acciones</button></div>
+
+            <section id="studio-design" role="tabpanel" aria-labelledby="studio-tab-design" className="studio-panel-content" hidden={studioPanel !== 'design'}>
+              {!selectedNode && !selectedEdge && <div className="studio-design-intro"><span className="eyebrow">DALE FORMA A LO QUE VIENE</span><h3>De una idea<br />a mil conexiones.</h3><Workflow size={55} strokeWidth={1.1} /></div>}
+              <LeftSidebar embedded addNode={addNode} selectedNode={selectedNode} selectedEdge={selectedEdge} editingData={editingData} editingEdge={editingEdge} handleInputChange={handleInputChange} handleArrayChange={handleArrayChange} handleInputChangeEdge={handleInputChangeEdge} updateNodeData={updateNodeData} updateEdgeData={updateEdgeData} handleCreateAssociationClass={handleCreateAssociationClass} setSelectedEdge={setSelectedEdge} setEditingEdge={setEditingEdge} />
+              <div className="studio-outline"><div className="studio-outline-heading"><span>EN ESTE LIENZO</span><span>{nodes.length}</span></div>{nodes.length ? nodes.map(node => <button key={node.id} onClick={() => { selectStudioNode(node); fitView({ nodes: [{ id: node.id }], maxZoom: 1, duration: 250 }); }} className={selectedNode?.id === node.id ? 'is-selected' : ''}>{node.data?.isNote ? <StickyNote size={15} /> : <Braces size={15} />}<span>{node.data?.className || node.data?.text?.split('\n')[0] || 'Nota'}</span><ChevronRight size={13} /></button>) : <p>Las clases y notas que crees aparecerán aquí.</p>}</div>
+              {(activeUsers.length > 0 || participantes.length > 0) && <div className="studio-participants"><span className="eyebrow"><Users size={13} /> EN LÍNEA</span>{(activeUsers.length ? activeUsers : participantes).map((p, idx) => <span key={idx}>{typeof p === 'string' ? p : p.name || p.email || 'Participante'}</span>)}</div>}
+            </section>
+
+            <section id="studio-assistant" role="tabpanel" aria-labelledby="studio-tab-assistant" className="studio-assistant-slot" hidden={studioPanel !== 'assistant'}><AiBubble embedded boardId={boardId} nodes={nodes} edges={edges} setNodes={setNodes} setEdges={setEdges} updateBoardData={updateBoardData} onAiModificationChange={setAiModificationActive} /></section>
+            <section id="studio-tools" role="tabpanel" aria-labelledby="studio-tab-tools" className="studio-panel-content" hidden={studioPanel !== 'tools'}><BurbujaHerramientasDiagrama embedded nodes={nodes} edges={edges} setNodes={setNodes} setEdges={setEdges} selectedNodeIds={selectedNode ? [selectedNode.id] : []} selectedEdgeIds={selectedEdge ? [selectedEdge.id] : []} boardId={boardId} updateBoardData={updateBoardData} userEmail={currentUser?.email} /></section>
+            <section className="studio-panel-content studio-export-panel" hidden={studioPanel !== 'export'} aria-label="Formatos de exportación"><div className="studio-export-intro"><span><ArrowUpRight size={25} /></span><span className="eyebrow">EL SIGUIENTE PASO</span><h3>Tu idea, más allá<br />del lienzo.</h3><p>Elige cómo quieres continuar con tu proyecto.</p></div><div className="studio-export-options">{exportOptions.map(({ id, name, detail, icon: Icon, action, tag }) => <button key={id} onClick={action} data-tour={id}><span className="studio-export-icon"><Icon size={19} /></span><span><strong>{name}</strong><small>{detail}</small></span><span className="studio-export-format">{tag}</span></button>)}</div><button className="studio-export-more" onClick={() => setStudioPanel('tools')}>¿Buscas una imagen o un JSON?<ArrowUpRight size={15} /></button></section>
+          </aside>
         </div>
-      )}
-      {/* Barra superior con botones y usuarios activos */}
-      <div className="flex items-center justify-between p-2 bg-white border-b">
-        <div className="flex items-center space-x-4">
-          {/* Deshacer y rehacer */}
-          <div className="flex items-center gap-1" data-tour="deshacer">
-            <button
-              onClick={deshacer}
-              disabled={!puedeDeshacer}
-              title="Deshacer (Ctrl+Z)"
-              aria-label="Deshacer"
-              className={`w-9 h-9 flex items-center justify-center rounded-md border transition-colors ${puedeDeshacer ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7v6h6" />
-                <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
-              </svg>
-            </button>
-            <button
-              onClick={rehacer}
-              disabled={!puedeRehacer}
-              title="Rehacer (Ctrl+Y)"
-              aria-label="Rehacer"
-              className={`w-9 h-9 flex items-center justify-center rounded-md border transition-colors ${puedeRehacer ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 7v6h-6" />
-                <path d="M21 13a9 9 0 1 1-3-7.7L21 8" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Botón de verificación UML con IA */}
-          <button
-            onClick={handleVerifyDiagramAI}
-            data-tour="verificar"
-            className="btn-primary bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-md transition-all duration-200"
-          >
-            Verificar Diagrama
-          </button>
-
-          {/* (Edit/Delete buttons removed) */}
-          <button
-            onClick={async () => {
-              try {
-                setSaving(true);
-                Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                const resp = await guardarEstado({ nodes, edges });
-                Swal.close();
-                if (resp && resp.success) {
-                  setUnsaved(false);
-                  Swal.fire({ icon: 'success', title: 'Guardado', timer: 1200, showConfirmButton: false });
-                } else {
-                  Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(new Error((resp && resp.error) || ''), 'El servidor no confirmó el guardado. Revisa tu conexión e intenta de nuevo.') });
-                }
-              } catch (err) {
-                console.error('Guardar button error', err);
-                Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(err, 'Revisa tu conexión e intenta de nuevo.') });
-              } finally {
-                setSaving(false);
-              }
-            }}
-            disabled={!unsaved || saving}
-            className={`px-3 py-2 rounded-md flex items-center gap-2 ${!unsaved || saving ? 'bg-gray-300 text-gray-700 cursor-not-allowed' : 'bg-green-600 text-white'}`}
-          >
-            {saving ? 'Guardando…' : 'Guardar'}
-          </button>
-
-          {/* Botón Postman (genera colección Postman para probar la API) */}
-          <button
-            onClick={() => handleGeneratePostmanCollection()}
-            data-tour="postman"
-            className="btn-secondary bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-md flex items-center gap-2"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Postman
-          </button>
-
-          {/* Botón de generación Spring Boot */}
-          <button
-            onClick={() => handleGenerateCompleteProject()}
-            data-tour="springboot"
-            className="btn-secondary bg-gradient-to-r from-blue-500 to-sky-600 text-white px-4 py-2 rounded-md flex items-center gap-2"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M19 11H5m14 0a4 4 0 01-4 4H9a4 4 0 01-4-4m14 0a4 4 0 00-4-4h6a4 4 0 014 4z"
-              />
-            </svg>
-            Spring Boot
-          </button>
-
-          {/* Botón de generación Flutter (server-side) */}
-          <button
-            onClick={() => handleGenerateFlutterProject()}
-            className="btn-secondary bg-gradient-to-r from-blue-500 to-sky-600 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar proyecto Flutter desde servidor"
-            data-tour="flutter"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeWidth="1.5" d="M12 2l3 5-3 5-3-5 3-5zM12 22l3-5-3-5-3 5 3 5z" />
-            </svg>
-            Flutter
-          </button>
-
-          <button
-            onClick={handleExportSQL}
-            className="btn-secondary bg-gradient-to-r from-amber-500 to-orange-600 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar el modelo relacional como script SQL de PostgreSQL"
-            data-tour="sql"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <ellipse cx="12" cy="5" rx="8" ry="3" strokeWidth="1.5" />
-              <path strokeWidth="1.5" d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
-              <path strokeWidth="1.5" d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" />
-            </svg>
-            SQL
-          </button>
-
-          <button
-            onClick={handleExportXMI}
-            className="btn-secondary bg-gradient-to-r from-slate-500 to-slate-700 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar el diagrama en XMI 2.5 (compatible con Enterprise Architect)"
-            data-tour="xmi"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeWidth="1.5" d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V9" />
-              <path strokeWidth="1.5" d="M14 3h7v7M21 3l-9 9" />
-            </svg>
-            XMI
-          </button>
-
-          {/* Usuarios activos */}
-          <ActiveUsers users={activeUsers} />
-          {/* Debug: button to dump recent socket events and current edges */}
-          <button
-            onClick={() => {
-              try {
-                const events = typeof getDebugEvents === 'function' ? getDebugEvents() : [];
-                // console.debug('BoardPage: Debug events (last):', events);
-                // console.debug('BoardPage: Current edges snapshot:', edges);
-                // Also show a quick alert count for convenience
-                // eslint-disable-next-line no-alert
-                alert(`Debug events: ${events.length} • edges: ${edges.length}`);
-              } catch (err) {
-                console.error('BoardPage: failed to get debug events', err);
-              }
-            }}
-            className="px-2 py-1 text-xs bg-gray-100 rounded border ml-2"
-            title="Imprimir eventos de socket recientes en la consola"
-          >
-            Debug Events
-          </button>
-        </div>
-
-        {/* Lista de participantes */}
-        <div className="flex gap-2">
-          {participantes.map((p, idx) => (
-            <span
-              key={`participante-${idx}`}
-              className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs"
-            >
-              {p}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* React Flow (Diagrama) */}
-      <div className="flex-1">
-        <ReactFlow
-          data-tour="lienzo"
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodeClick={(_, node) => handleNodeSelection(node)}
-          onEdgeClick={(_, edge) => handleEdgeSelection(edge)}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          defaultEdgeOptions={defaultEdgeOptions}
-          connectionMode="loose"
-          isValidConnection={(connection) => {
-            // Permitir TODAS las conexiones, incluyendo conexiones recursivas (mismo nodo)
-            // Solo validar que no sea una conexión inválida (sin source o target)
-            return connection.source && connection.target;
-          }}
-          fitView
-          className="bg-gray-50"
-        >
-          <Background color="#e0e7ff" gap={20} />
-          <Controls className="bg-white shadow-md" />
-
-        </ReactFlow>
-      </div>
-      
-      {/* Burbuja de herramientas */}
-      <AiBubble
-        boardId={boardId}
-        nodes={nodes}
-        edges={edges}
-        setNodes={setNodes}
-        setEdges={setEdges}
-        updateBoardData={updateBoardData}
-        onAiModificationChange={setAiModificationActive}
-      />
-
-      <BurbujaHerramientasDiagrama
-        nodes={nodes}
-        edges={edges}
-        setNodes={setNodes}
-        setEdges={setEdges}
-        selectedNodeIds={selectedNode ? [selectedNode.id] : []}
-        selectedEdgeIds={selectedEdge ? [selectedEdge.id] : []}
-        boardId={boardId}
-        updateBoardData={updateBoardData}
-        userEmail={currentUser?.email}
-      />
-
-  {/* Debug panel removed */}
-
-      <Tour
-        pasos={TOUR_EDITOR}
-        abierto={tourEditorAbierto}
-        onCerrar={() => { setTourEditorAbierto(false); marcarTourVisto('editor'); }}
-      />
-      <BotonAyuda onRelanzarTour={() => setTourEditorAbierto(true)} />
-    </div>
-  </div>
-);
-
+      </section>
+      <Tour pasos={TOUR_EDITOR} abierto={tourEditorAbierto} onStepChange={revealTourPanel} onCerrar={() => { setTourEditorAbierto(false); marcarTourVisto('editor'); }} />
+    </main>
+  );
 };
 
-// Wrapper con provider
 export default function BoardPageWrapper() {
-  return (
-    <ReactFlowProvider>
-      <BoardPage />
-    </ReactFlowProvider>
-  );
+  return <ReactFlowProvider><BoardPage /></ReactFlowProvider>;
 }

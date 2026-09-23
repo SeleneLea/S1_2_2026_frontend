@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 /**
@@ -66,7 +67,7 @@ export default function BotonInstalar({ compacto = false }) {
         ? 'w-full text-left block nav-link-modern'
         : 'nav-link-modern flex items-center gap-1'}
     >
-      <span aria-hidden="true">⬇️</span> Instalar app
+      <Download size={15} aria-hidden="true" /> Instalar app
     </button>
   );
 }

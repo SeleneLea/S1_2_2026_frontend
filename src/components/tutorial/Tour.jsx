@@ -14,11 +14,15 @@ import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react'
  */
 const MARGEN = 8;
 
-const Tour = ({ pasos = [], abierto = false, onCerrar = () => {} }) => {
+const Tour = ({ pasos = [], abierto = false, onCerrar = () => {}, onStepChange }) => {
   const [indice, setIndice] = useState(0);
   const [rect, setRect] = useState(null);
 
   const paso = pasos[indice];
+
+  useEffect(() => {
+    if (abierto) onStepChange?.(paso);
+  }, [abierto, paso, onStepChange]);
 
   const medir = useCallback(() => {
     if (!paso?.selector) {
@@ -83,7 +87,7 @@ const Tour = ({ pasos = [], abierto = false, onCerrar = () => {} }) => {
       position: 'fixed',
       top: debajo ? rect.top + rect.height + MARGEN + 6 : Math.max(12, rect.top - 190),
       left: Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - 372)),
-      width: 360,
+      width: 'min(360px, calc(100vw - 24px))',
       zIndex: 10002,
     };
   } else {
@@ -92,7 +96,7 @@ const Tour = ({ pasos = [], abierto = false, onCerrar = () => {} }) => {
       top: '50%',
       left: '50%',
       transform: 'translate(-50%, -50%)',
-      width: 380,
+      width: 'min(380px, calc(100vw - 24px))',
       zIndex: 10002,
     };
   }
@@ -110,7 +114,7 @@ const Tour = ({ pasos = [], abierto = false, onCerrar = () => {} }) => {
             height: rect.height + MARGEN * 2,
             borderRadius: 10,
             boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.68)',
-            border: '2px solid #a855f7',
+            border: '2px solid var(--salmon)',
             zIndex: 10001,
             pointerEvents: 'none',
             transition: 'all 0.2s ease',

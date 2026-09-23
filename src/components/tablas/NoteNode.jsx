@@ -9,7 +9,7 @@ function NoteNode({ data, isConnectable, selected }) {
     <div 
       className={`note-node ${selected ? 'selected' : ''}`}
       style={{
-        background: '#fffacd', // Color amarillo claro típico de notas
+        background: '#FECEA8', // Color amarillo claro típico de notas
         border: '1px solid #ddd',
         borderRadius: '8px',
         padding: '12px',
@@ -21,7 +21,7 @@ function NoteNode({ data, isConnectable, selected }) {
           : '0 2px 6px rgba(0, 0, 0, 0.1)',
         fontSize: '12px',
         fontFamily: 'Arial, sans-serif',
-        color: '#333',
+        color: '#2A363B',
         lineHeight: '1.4',
         transition: 'all 0.2s ease',
         wordWrap: 'break-word',
@@ -36,7 +36,7 @@ function NoteNode({ data, isConnectable, selected }) {
           right: 0,
           width: '15px',
           height: '15px',
-          background: '#f0e68c',
+          background: '#E8B695',
           clipPath: 'polygon(0% 0%, 100% 100%, 0% 100%)',
           border: '1px solid #ddd',
           borderLeft: 'none',
@@ -73,7 +73,7 @@ function NoteNode({ data, isConnectable, selected }) {
         id="note-connector"
         isConnectable={isConnectable}
         style={{
-          background: '#ffc107',
+          background: '#FF847C',
           border: '2px solid #fff',
           width: '8px',
           height: '8px',
@@ -88,7 +88,7 @@ function NoteNode({ data, isConnectable, selected }) {
         id="note-connector-right"
         isConnectable={isConnectable}
         style={{
-          background: '#ffc107',
+          background: '#FF847C',
           border: '2px solid #fff',
           width: '8px',
           height: '8px',
@@ -103,7 +103,7 @@ function NoteNode({ data, isConnectable, selected }) {
         id="note-connector-bottom"
         isConnectable={isConnectable}
         style={{
-          background: '#ffc107',
+          background: '#FF847C',
           border: '2px solid #fff',
           width: '8px',
           height: '8px',
@@ -118,7 +118,7 @@ function NoteNode({ data, isConnectable, selected }) {
         id="note-connector-left"
         isConnectable={isConnectable}
         style={{
-          background: '#ffc107',
+          background: '#FF847C',
           border: '2px solid #fff',
           width: '8px',
           height: '8px',

@@ -5,7 +5,7 @@ import { TAREAS, leerProgreso } from './guiones.js';
  * Botón flotante "?" que relanza el tour y muestra el progreso de aprendizaje.
  * El checklist se marca solo cuando el usuario realiza cada acción de verdad.
  */
-const BotonAyuda = ({ onRelanzarTour }) => {
+const BotonAyuda = ({ onRelanzarTour, embedded = false }) => {
   const [abierto, setAbierto] = useState(false);
   const [progreso, setProgreso] = useState(leerProgreso());
 
@@ -23,7 +23,7 @@ const BotonAyuda = ({ onRelanzarTour }) => {
         onClick={() => setAbierto((v) => !v)}
         title="Ayuda y tutorial"
         aria-label="Ayuda y tutorial"
-        style={{
+        style={embedded ? undefined : {
           position: 'fixed',
           left: 18,
           bottom: 18,
@@ -32,14 +32,14 @@ const BotonAyuda = ({ onRelanzarTour }) => {
           height: 44,
           borderRadius: '50%',
         }}
-        className="bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold shadow-lg flex items-center justify-center"
+        className={embedded ? 'studio-rail-help' : 'bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold shadow-lg flex items-center justify-center'}
       >
         ?
       </button>
 
       {abierto && (
         <div
-          style={{ position: 'fixed', left: 18, bottom: 74, zIndex: 9999, width: 300 }}
+          style={{ position: 'fixed', left: embedded ? 76 : 18, bottom: embedded ? 18 : 74, zIndex: 9999, width: 'min(300px, calc(100vw - 88px))' }}
           className="bg-white rounded-lg shadow-2xl p-4 border border-gray-200"
         >
           <div className="flex items-center justify-between mb-3">

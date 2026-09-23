@@ -44,43 +44,43 @@ const UML_RELATIONSHIP_TYPES = {
     markerStart: 'none',
     markerEnd: 'none',
     strokeStyle: 'solid',
-    stroke: '#000000'
+    stroke: 'var(--color-text-primary)'
   },
   Aggregation: {
     markerStart: 'none',
     markerEnd: 'diamond',
     strokeStyle: 'solid',
-    stroke: '#1976d2'
+    stroke: 'var(--sage-ink)'
   },
   Composition: {
     markerStart: 'none',
     markerEnd: 'diamond-filled',
     strokeStyle: 'solid',
-    stroke: '#d32f2f'
+    stroke: 'var(--peach-ink)'
   },
   Generalization: {
     markerStart: 'none',
     markerEnd: 'generalization',
     strokeStyle: 'solid',
-    stroke: '#000000'
+    stroke: 'var(--color-text-primary)'
   },
   Implementation: {
     markerStart: 'none',
     markerEnd: 'generalization',
     strokeStyle: 'dashed',
-    stroke: '#000000'
+    stroke: 'var(--color-text-primary)'
   },
   Dependency: {
     markerStart: 'none',
     markerEnd: 'arrow',
     strokeStyle: 'dashed',
-    stroke: '#666666'
+    stroke: 'var(--color-text-secondary)'
   },
   NoteConnection: {
     markerStart: 'none',
     markerEnd: 'none',
     strokeStyle: 'dashed',
-    stroke: '#fbbf24' // Color amarillo para conexiones de notas
+    stroke: 'var(--peach-ink)' // Color amarillo para conexiones de notas
   }
 };
 
@@ -415,7 +415,7 @@ const UmlEdge = ({
 
     const associationStyle = {
       ...style,
-      stroke: '#dc2626',
+      stroke: 'var(--sage-ink)',
       strokeWidth: 2,
       strokeDasharray: '8,4',
       pointerEvents: 'none',
@@ -436,7 +436,7 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: '#dc2626',
+              background: 'var(--solid-ink)',
               color: 'white',
               padding: '2px 6px',
               borderRadius: '4px',
@@ -458,7 +458,7 @@ const UmlEdge = ({
   if (isNoteConnection) {
     const noteStyle = {
       ...style,
-      stroke: '#fbbf24', // Amarillo para conexiones de notas
+      stroke: 'var(--peach-ink)', // Amarillo para conexiones de notas
       strokeWidth: 1.5,
       strokeDasharray: '4,4', // Línea punteada ligera
       pointerEvents: 'none',
@@ -481,7 +481,7 @@ const UmlEdge = ({
   // Estilos mejorados con feedback visual para relaciones normales
   const edgeStyle = {
     ...style,
-    stroke: isSelected ? '#dc2626' : edgeType.stroke, // Rojo cuando está seleccionado
+    stroke: isSelected ? 'var(--sage-ink)' : edgeType.stroke, // Rojo cuando está seleccionado
     strokeWidth: isSelected ? 3 : 2, // Más grueso cuando está seleccionado
     strokeDasharray: edgeType.strokeStyle === 'dashed' ? '5,5' : 'none',
     cursor: 'pointer',
@@ -576,7 +576,7 @@ const UmlEdge = ({
             cx={labelX}
             cy={labelY}
             r="4"
-            fill="#3b82f6"
+            fill="var(--sage-ink)"
             stroke="white"
             strokeWidth="2"
             style={{ filter: 'drop-shadow(0 1px 2px rgb(0 0 0 / 0.3))' }}
@@ -587,7 +587,7 @@ const UmlEdge = ({
             textAnchor="middle"
             fontSize="10"
             fontWeight="bold"
-            fill="#3b82f6"
+            fill="var(--sage-ink)"
             style={{ filter: 'drop-shadow(0 1px 1px rgb(255 255 255 / 0.8))' }}
           >
             AC
@@ -601,7 +601,7 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: 'white',
+              background: 'var(--color-surface)',
               padding: '4px 8px',
               borderRadius: '4px',
               fontSize: '12px',
@@ -621,7 +621,7 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: '#3b82f6',
+              background: 'var(--solid-ink)',
               color: 'white',
               padding: '1px 4px',
               borderRadius: '6px',
@@ -641,14 +641,14 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: 'rgba(255, 255, 255, 0.95)',
+              background: 'var(--color-surface)',
               padding: '3px 6px',
               borderRadius: '6px',
               fontSize: '11px',
               fontFamily: 'monospace',
               fontWeight: 'bold',
-              border: '2px solid #3b82f6',
-              color: '#1e40af',
+              border: '2px solid var(--sage-ink)',
+              color: 'var(--sage-ink)',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               transform: `translate(-50%, -50%) translate(${posicionInicio.x}px,${posicionInicio.y}px)`,
               zIndex: 1000
@@ -665,14 +665,14 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: 'rgba(255, 255, 255, 0.95)',
+              background: 'var(--color-surface)',
               padding: '3px 6px',
               borderRadius: '6px',
               fontSize: '11px',
               fontFamily: 'monospace',
               fontWeight: 'bold',
-              border: '2px solid #10b981',
-              color: '#059669',
+              border: '2px solid var(--sage-ink)',
+              color: 'var(--sage-ink)',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               transform: `translate(-50%, -50%) translate(${posicionFin.x}px,${posicionFin.y}px)`,
               zIndex: 1000

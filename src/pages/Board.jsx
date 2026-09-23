@@ -1,3 +1,4 @@
+import { Workflow, Plus, Upload, LayoutGrid } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 // Use backend endpoints instead of Firestore
@@ -527,56 +528,19 @@ const Board = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* Header con título y botones principales */}
-        <div className="header-container">
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            Mis Tableros
-          </h1>
-
-          <div className="flex items-center gap-3">
-            {/* Botón importar XML */}
-            <label
-              htmlFor="fileInput"
-              data-tour="importar-xml"
-              className="btn-success cursor-pointer"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              Importar XMI / EAP
-            </label>
-            <input
-              type="file"
-              id="fileInput"
-              accept=".xmi,.xml,.eap"
-              onChange={handleXmlUpload}
-              className="hidden"
-            />
-
-            {/* Botón nuevo tablero */}
-            <button
-              onClick={() => setModalIsOpen(true)}
-              data-tour="nuevo-tablero"
-              className="btn-primary"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                  d="M12 4v16m8-8H4" />
-              </svg>
-              Nuevo Tablero
-            </button>
+    <main className="workspace page-width">
+      <div>
+        <div className="workspace-heading">
+          <div><span className="eyebrow"><span className="status-dot" /> MI ESPACIO DE TRABAJO</span><h1>Mis diagramas.</h1><p>Hola, {user?.name?.split(' ')[0] || 'de nuevo'}. Tus ideas tienen un lugar aquí.</p></div>
+          <div className="workspace-actions">
+            <button type="button" onClick={() => document.getElementById('fileInput').click()} data-tour="importar-xml" className="btn-success"><Upload size={17} /> Importar XMI / EAP</button>
+            <input type="file" id="fileInput" accept=".xmi,.xml,.eap" onChange={handleXmlUpload} className="hidden" />
+            <button onClick={() => setModalIsOpen(true)} data-tour="nuevo-tablero" className="btn-primary"><Plus size={18} /> Nuevo tablero</button>
           </div>
         </div>
-
-        {/* Contenedor principal de la lista de tableros */}
-        <div className="card-container">
+        <div className="workspace-banner"><div><h2>Un nuevo proyecto empieza con una idea.</h2><p>Dale forma en un tablero, conecta sus piezas e invita a tu equipo a construir contigo.</p></div><span className="workspace-banner-symbol" aria-hidden="true"><Workflow size={42} strokeWidth={1.3} /></span></div>
+        <div className="board-section-heading"><h2><LayoutGrid size={17} /> Todos los tableros <span className="board-count">{boardList.length}</span></h2><span>Un espacio para cada proyecto</span></div>
+        <div>
           <BoardList
             boards={boardList}
             user={user}
@@ -619,7 +583,7 @@ const Board = () => {
         />
         <BotonAyuda onRelanzarTour={() => setTourAbierto(true)} />
       </div>
-    </div>
+    </main>
   );
 };
 

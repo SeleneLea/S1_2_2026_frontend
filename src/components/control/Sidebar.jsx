@@ -1,10 +1,10 @@
+import { MousePointer2, StickyNote } from 'lucide-react';
 import React, { useState, useEffect } from "react";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PlusCircleIcon,
 } from "@heroicons/react/24/outline";
-import '../../../src/index.css'; // Ajusta según tu ruta real
 import { ESTEREOTIPOS } from '../../utils/umlParser.js';
 
 const LeftSidebar = ({
@@ -21,9 +21,10 @@ const LeftSidebar = ({
   handleCreateAssociationClass,
   setSelectedEdge,
   setEditingEdge,
+  embedded = false,
 }) => {
   const [activeTab, setActiveTab] = useState('node');
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => window.matchMedia('(max-width: 600px)').matches);
 
   // Opciones de cardinalidad y tipos de relación
   const cardinalityOptions = ["0..1", "1", "0..*", "1..*", "*"];
@@ -369,23 +370,33 @@ const LeftSidebar = ({
     );
   };
 
+  if (embedded) {
+    return <div className="studio-properties" data-tour="panel-lateral">
+      <div className="studio-properties-heading"><span className="eyebrow">PROPIEDADES</span><p>Cada detalle cuenta.</p></div>
+      {(selectedNode || selectedEdge) ? <>
+        <div className="studio-property-tabs">
+          <button onClick={() => setActiveTab('node')} disabled={!selectedNode} aria-pressed={activeTab === 'node'}>{selectedNode?.data?.isNote ? 'Nota' : 'Clase'}</button>
+          <button onClick={() => setActiveTab('edge')} disabled={!selectedEdge} aria-pressed={activeTab === 'edge'}>Relación</button>
+        </div>
+        {activeTab === 'node' && selectedNode && (selectedNode.data?.isNote ? renderNoteEditor() : renderNodeEditor())}
+        {activeTab === 'edge' && selectedEdge && renderEdgeEditor()}
+      </> : <div className="studio-property-empty"><MousePointer2 size={25} /><h3>Elige una pieza.</h3><p>Selecciona una clase, una nota o una relación para darle tu toque.</p></div>}
+    </div>;
+  }
+
   // ==========================
   // RENDER PRINCIPAL DEL SIDEBAR
   // ==========================
   return (
     <div
-      className={`
-        bg-gradient-to-br from-white to-gray-50
-        border-r border-gray-200
-        relative transition-all duration-300
-        flex flex-col shadow-inner
-        ${isCollapsed ? 'w-16' : 'w-80'}
-      `}
-      style={{ minHeight: 'calc(100vh - 4rem)' }}
+      className={`editor-sidebar ${isCollapsed ? 'is-collapsed' : ''}`}
+
     >
       {/* Botón para colapsar/expandir */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
+        aria-label={isCollapsed ? "Expandir panel de herramientas" : "Contraer panel de herramientas"}
+        aria-expanded={!isCollapsed}
         className={`
           absolute -right-4 top-5 z-10 p-1
           rounded-full shadow bg-white border border-gray-300
@@ -402,7 +413,8 @@ const LeftSidebar = ({
 
       {/* Contenido visible si NO está colapsado */}
       {!isCollapsed && (
-        <div className="p-4 space-y-6">
+        <div className="sidebar-content space-y-6">
+          <h2 className="sidebar-title">TU CAJA DE HERRAMIENTAS</h2>
           {/* Botones de creación */}
           <div className="space-y-2">
             {/* Botón "Nueva Clase" */}
@@ -420,11 +432,12 @@ const LeftSidebar = ({
               onClick={handleAddNote}
               className="btn-secondary flex items-center gap-2 w-full bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
             >
-              <span className="w-5 h-5 flex items-center justify-center">📝</span>
+              <StickyNote size={18} />
               Nueva Nota
             </button>
           </div>
 
+          {!selectedNode && !selectedEdge && <div className="sidebar-hint"><MousePointer2 size={24} strokeWidth={1.5} /><strong>Cada idea empieza con una clase.</strong>Añade una clase o selecciona un elemento del lienzo para editar sus propiedades.</div>}
           {/* Si hay un nodo o arista seleccionado, mostramos el editor */}
           {(selectedNode || selectedEdge) && (
             <div>

@@ -1,3 +1,5 @@
+import AuthLayout from '../components/AuthLayout';
+import { ArrowUpRight, Mail, LockKeyhole, UserRound, AlertCircle } from 'lucide-react';
 import React, { useState } from 'react';
 // Using backend auth instead of Firebase
 import { Link, useNavigate } from 'react-router-dom';
@@ -35,68 +37,15 @@ const LoginPage = () => {
   };
 
   return (
-    <>
-      <div className="text-center mt-24">
-        <div className="flex items-center justify-center">
-          <svg fill="none" viewBox="0 0 24 24" className="w-12 h-12 text-blue-500" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        </div>
-        <h2 className="text-4xl tracking-tight">Iniciar Sesión</h2>
-        <span className="text-sm">
-          or <span className="text-sm"><Link to="/register" className="text-green-500">Registrarse</Link></span>
-     
-        </span>
-      </div>
-      <div className="flex justify-center my-2 mx-4 md:mx-0">
-        <form className="w-full max-w-xl bg-white rounded-lg p-6" onSubmit={handleLogin}>
-          <div className="flex flex-wrap -mx-3 mb-6">
-            <div className="w-full md:w-full px-3 mb-6">
-              <label className="block uppercase tracking-wide text-gray-700 text-xs font-bold mb-2" htmlFor="email">Email address</label>
-              <input
-                id="email"
-                name="email"
-                autoComplete="email"
-                className="appearance-none block w-full bg-white text-gray-900 font-medium border border-gray-400 rounded-lg py-3 px-3 leading-tight focus:outline-none"
-                type="email"
-                required
-                value={user}
-                onChange={(e) => setUser(e.target.value)}
-              />
-            </div>
-            <div className="w-full md:w-full px-3 mb-6">
-              <label className="block uppercase tracking-wide text-gray-700 text-xs font-bold mb-2" htmlFor="password">Password</label>
-              <input
-                id="password"
-                name="password"
-                autoComplete="current-password"
-                className="appearance-none block w-full bg-white text-gray-900 font-medium border border-gray-400 rounded-lg py-3 px-3 leading-tight focus:outline-none"
-                type="password"
-                required
-                value={pass}
-                onChange={(e) => setPass(e.target.value)}
-              />
-            </div>
-            <div className="w-full flex items-center justify-between px-3 mb-3">
-              <label htmlFor="remember" className="flex items-center w-1/2">
-                <input id="remember" type="checkbox" name="remember" className="mr-1 bg-white" />
-                <span className="text-sm text-gray-700 pt-1">Remember Me</span>
-              </label>
-              <div className="w-1/2 text-right">
-                <a href="#" className="text-blue-500 text-sm tracking-tight">Forget your password?</a>
-              </div>
-            </div>
-            {error && <p className="text-red-500 text-center w-full">{error}</p>}
-            <div className="w-full md:w-full px-3 mb-6">
-              <button className="appearance-none block w-full bg-blue-600 text-gray-100 font-bold border border-gray-200 rounded-lg py-3 px-3 leading-tight hover:bg-blue-500 focus:outline-none focus:bg-white focus:border-gray-500">
-                Sign in
-              </button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </>
+    <AuthLayout register={false}>
+      <form className="auth-form" onSubmit={handleLogin}>
+        <div className="form-field"><label htmlFor="email">Correo electrónico</label><div className="field-with-icon"><Mail size={18} /><input id="email" name="email" autoComplete="email" type="email" placeholder="tu@correo.com" required value={user} onChange={(e) => setUser(e.target.value)} /></div></div>
+        <div className="form-field"><label htmlFor="password">Contraseña</label><div className="field-with-icon"><LockKeyhole size={18} /><input id="password" name="password" autoComplete="current-password" type="password" placeholder="Tu contraseña" required value={pass} onChange={(e) => setPass(e.target.value)} /></div></div>
+        {error && <p className="form-error" role="alert"><AlertCircle size={18} />{error}</p>}
+        <button type="submit" className="btn-primary auth-submit">Iniciar sesión <ArrowUpRight size={18} /></button>
+      </form>
+      <p className="auth-switch">¿Es tu primera vez? <Link to="/register">Crea una cuenta <ArrowUpRight size={14} /></Link></p>
+    </AuthLayout>
   );
 };
-
 export default LoginPage;

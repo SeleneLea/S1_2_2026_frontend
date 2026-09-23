@@ -4,6 +4,7 @@ import PublicRoute from './routes/PublicRoute.jsx';
 import { StrictMode } from 'react';
 import '@xyflow/react/dist/style.css';
 import './index.css';
+import './studio.css';
 
 // Service worker: la app queda guardada y abre sin internet
 registerSW({ immediate: true });

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Sparkles, Laptop, Type, Mic, ImagePlus, SlidersHorizontal, MessageSquareText, Send, Upload, Trash2, Check, BookOpen, Wrench } from 'lucide-react';
 import { generateDiagram, modifyDiagram } from '../utils/aiService';
 import PanelIALocal from './PanelIALocal';
 import { iaNubeDisponible, leerImagenConIALocal, resolverConIALocal, transcribirConIALocal } from '../ia-local/asistenteLocal.js';
@@ -59,9 +60,9 @@ const parseCardinality = (cardinality) => {
   };
 };
 
-// Minimal AI Bubble component: floating FAB -> panel with input + history
-export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, updateBoardData, onAiModificationChange }) {
-  const [open, setOpen] = useState(false);
+// The assistant can live inside the studio dock or in its standalone panel.
+export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, updateBoardData, onAiModificationChange, embedded = false }) {
+  const [open, setOpen] = useState(embedded);
   // IA en uso: 'nube' (Gemini en el servidor) o 'local' (en este navegador, sin internet)
   const [motorIA, setMotorIA] = useState(null);
   const [panelLocal, setPanelLocal] = useState(false);
@@ -82,6 +83,9 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  // Un audio ya grabado (nota de voz, mp3, wav…) sigue el mismo camino que la grabadora
+  const audioFileRef = useRef(null);
+  const [audioSubido, setAudioSubido] = useState('');
   const [, forceUpdate] = useState(0); // Para forzar re-render
 
   // Estados para manejo de clarificaciones en modificaciones
@@ -543,6 +547,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
       return;
     }
     recordedChunksRef.current = [];
+    setAudioSubido('');
     forceUpdate(Date.now());
     setLoading(false);
     if (!transcripcion) {
@@ -573,9 +578,32 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
     // Las miniaturas quedan en el historial del chat, así que no se liberan al vaciar la bandeja
     setImagenes((previas) => { previas.forEach((i) => { i.enviada = true; }); return []; });
 
+    let actuales = { nodes: nodes || [], edges: edges || [] };
     try {
       for (let i = 0; i < lote.length; i++) {
         if (lote.length > 1) pushMessage({ role: 'ai', text: `Analizando la imagen ${i + 1} de ${lote.length}…` });
+        const hayClases = (actuales.nodes || []).some((n) => n && n.data && n.data.className);
+        if (hayClases) {
+          // Editar lo que ya existe: la IA recibe la imagen y el diagrama actual
+          const editado = await modifyDiagram({
+            prompt: texto || '',
+            nodes: actuales.nodes,
+            edges: actuales.edges,
+            mode: 'modify',
+            salaId: boardId,
+            file: lote[i].file
+          });
+          if (!editado || !editado.success || !editado.newState) {
+            pushMessage({ role: 'ai', text: mensajeDeError(new Error((editado && editado.error) || ''), 'La IA no pudo leer la imagen. Prueba con una foto más nítida.') });
+            continue;
+          }
+          actuales = { nodes: editado.newState.nodes || [], edges: editado.newState.edges || [] };
+          setNodes([...actuales.nodes]);
+          setEdges([...actuales.edges]);
+          if (typeof updateBoardData === 'function') await updateBoardData({ nodes: actuales.nodes, edges: actuales.edges });
+          pushMessage({ role: 'ai', text: `🖼️ ${editado.message || 'Diagrama actualizado con la imagen'}` });
+          continue;
+        }
         const res = await generateDiagram({ type: 'image', content: texto, file: lote[i].file, salaId: boardId });
         if (!res || !res.success) {
           pushMessage({ role: 'ai', text: mensajeDeError(new Error((res && res.error) || ''), 'La IA no pudo leer la imagen. Prueba con una foto más nítida.') });
@@ -631,11 +659,11 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
         'muchos a muchos', 'many to many'
       ];
       
-      const isModification = mode === 'edit' || 
-                           (nodes && nodes.length > 0) && 
-                           modificationKeywords.some(keyword => 
+      const hayClases = (nodes || []).some((n) => n && n.data && n.data.className);
+      const isModification = mode === 'edit' || hayClases ||
+                           modificationKeywords.some(keyword =>
                              text.toLowerCase().includes(keyword)
-                           );
+                           ) && (nodes && nodes.length > 0);
 
       let res;
       if (isModification) {
@@ -795,13 +823,13 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
   };
 
   return (
-    <div>
+    <div className={embedded ? 'studio-ai' : undefined}>
       {/* FAB */}
-  <div className="fixed bottom-6 right-28 z-40">
+      {!embedded && <div className="fixed bottom-6 right-28 z-40">
         <button
           onClick={toggle}
           title="AI: Generar diagrama"
-          className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg"
+          className="assistant-fab bg-indigo-600 hover:bg-indigo-700 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg"
           aria-label="Abrir asistente IA"
         >
           <svg className="w-6 h-6" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -812,88 +840,83 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
             <path d="M8 17h8" stroke="currentColor" strokeLinecap="round" />
           </svg>
         </button>
-      </div>
+      </div>}
 
       {/* Panel */}
-      {open && (
-        <div onPaste={alPegar} className="fixed bottom-20 right-6 z-50 w-[90vw] max-w-md rounded-xl shadow-2xl overflow-hidden bg-white border border-gray-200" role="dialog" aria-label="AI Diagram Generator">
+      {(embedded || open) && (
+        <div onPaste={alPegar} className={embedded ? 'studio-ai-panel' : 'assistant-panel fixed bottom-20 right-6 z-50 w-[90vw] max-w-md rounded-xl shadow-2xl overflow-hidden bg-white border border-gray-200'} role={embedded ? 'region' : 'dialog'} aria-label="Asistente de diagramas">
           {/* Backdrop para cerrar al hacer clic fuera */}
-          <div 
+          {!embedded && <div
             className="fixed inset-0 bg-black bg-opacity-20 z-40"
             onClick={toggle}
             aria-hidden="true"
-          ></div>
+          ></div>}
           
           {/* Panel principal */}
-          <div className="relative z-50 bg-white rounded-xl shadow-2xl max-h-[80vh] flex flex-col">
+          <div className={embedded ? 'studio-ai-shell' : 'relative z-50 bg-white rounded-xl shadow-2xl max-h-[80vh] flex flex-col'}>
           {/* Header */}
-          <div className="px-4 py-2 bg-gradient-to-r from-indigo-400 to-purple-600 text-white flex items-center justify-between">
+          <div className={embedded ? 'studio-ai-heading' : 'assistant-heading px-4 py-3 flex items-center justify-between'}>
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-white/20 rounded flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <rect x="3" y="7" width="18" height="11" rx="2" stroke="currentColor" />
-                  <rect x="7" y="3" width="10" height="4" rx="1" stroke="currentColor" />
-                  <circle cx="9" cy="12" r="1" fill="white" />
-                  <circle cx="15" cy="12" r="1" fill="white" />
-                  <path d="M8 17h8" stroke="currentColor" strokeLinecap="round" />
-                </svg>
+              <div className="studio-ai-mark w-8 h-8 bg-white/20 rounded flex items-center justify-center">
+                <Sparkles size={20} aria-hidden="true" />
               </div>
               <div>
-                <div className="text-sm font-semibold">AI Diagram Generator</div>
-                <div className="text-xs opacity-90">
-                  {motorIA === 'local' ? '💻 IA local (sin internet)' : motorIA === 'nube' ? '☁️ IA en la nube' : 'Asistente de IA para crear diagramas'}
-                </div>
+                <div className="studio-ai-title text-sm font-semibold">Tu copiloto creativo</div>
+                <div className="studio-ai-subtitle text-xs opacity-90">De una idea a tu próximo diagrama.</div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="studio-ai-heading-actions flex items-center gap-2">
               <button
-                className={`h-7 px-2 rounded text-white text-xs flex items-center justify-center ${panelLocal ? 'bg-white/40' : 'bg-white/20'}`}
+                className={`studio-ai-local h-7 px-2 rounded text-xs flex items-center justify-center gap-1 ${panelLocal ? 'bg-white/40' : 'bg-white/20'}`}
                 onClick={() => setPanelLocal((v) => !v)}
                 title="IA sin internet: descargar modelos y elegir nivel"
                 aria-label="IA sin internet"
+                aria-expanded={panelLocal}
               >
-                💻 Sin internet
+                <Laptop size={14} aria-hidden="true" /> Sin internet
               </button>
-              <button className="w-7 h-7 rounded bg-white/20 text-white flex items-center justify-center" onClick={() => setOpen(false)} aria-label="Minimizar">—</button>
-              <button className="w-7 h-7 rounded bg-white/20 text-white flex items-center justify-center" onClick={() => setOpen(false)} aria-label="Cerrar">✕</button>
+              {!embedded && <>
+                <button className="w-7 h-7 rounded bg-white/20 text-white flex items-center justify-center" onClick={() => setOpen(false)} aria-label="Minimizar">—</button>
+                <button className="w-7 h-7 rounded bg-white/20 text-white flex items-center justify-center" onClick={() => setOpen(false)} aria-label="Cerrar">✕</button>
+              </>}
             </div>
           </div>
 
           {panelLocal && (
-            <div className="flex-1 overflow-y-auto bg-white">
+            <div className="studio-ai-local-panel flex-1 overflow-y-auto bg-white">
               <PanelIALocal onCerrar={() => setPanelLocal(false)} onCambio={actualizarMotor} />
             </div>
           )}
           {/* Body - Scrollable content */}
-          <div className={`flex-1 overflow-y-auto bg-white ${panelLocal ? 'hidden' : ''}`}>
-            <div className="p-4 space-y-4">
-            <div className="mb-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 border">
-              <div className="mb-1">🎉 ¡Hola! Soy tu asistente de IA para crear diagramas de clases.</div>
-              <div className="text-xs text-gray-500">Envía texto, una nota de voz o una imagen y generaré un diagrama UML automáticamente. Sin internet sigo funcionando con la IA local (texto, voz y edición).</div>
+          <div className={`studio-ai-body flex-1 overflow-y-auto bg-white ${panelLocal ? 'hidden' : ''}`}>
+            <div className="studio-ai-content p-4 space-y-4">
+            <div className="studio-ai-intro mb-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 border">
+              <div className="mb-1 font-semibold">Dale forma a tu idea.</div>
+              <div className="text-xs text-gray-500">Describe tu sistema, comparte un boceto o cuéntalo con tu voz. Lo construimos juntos.</div>
             </div>
 
             {/* Tabs */}
-            <div className="flex items-center gap-3 mb-3">
+            <div className="studio-ai-tabs flex items-center gap-3 mb-3" role="group" aria-label="Cómo quieres crear">
               <button
                 onClick={() => setMode('text')}
                 className={`px-3 py-1 rounded-full text-sm ${mode === 'text' ? 'bg-indigo-200 text-indigo-900' : 'bg-gray-100 text-gray-600'}`}
                 aria-pressed={mode === 'text'}
               >
-                Texto
+                <Type size={15} aria-hidden="true" /> Texto
               </button>
               <button
                 onClick={() => setMode('voice')}
                 className={`px-3 py-1 rounded-full text-sm ${mode === 'voice' ? 'bg-purple-200 text-purple-900' : 'bg-gray-100 text-gray-600'}`}
                 aria-pressed={mode === 'voice'}
               >
-                Voz
+                <Mic size={15} aria-hidden="true" /> Voz
               </button>
               <button
                 onClick={() => setMode('image')}
                 className={`px-3 py-1 rounded-full text-sm ${mode === 'image' ? 'bg-pink-200 text-pink-900' : 'bg-gray-100 text-gray-600'}`}
                 aria-pressed={mode === 'image'}
               >
-                Imagen
+                <ImagePlus size={15} aria-hidden="true" /> Imagen
               </button>
               <button
                 onClick={() => setMode('edit')}
@@ -901,17 +924,18 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                 aria-pressed={mode === 'edit'}
                 title="Editar diagrama"
               >
-                Editar
+                <SlidersHorizontal size={15} aria-hidden="true" /> Editar
               </button>
             </div>
 
             {/* Input area */}
-            <div className="mb-3">
+            <div className="studio-ai-compose mb-3">
               {mode === 'text' && (
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Describe el diagrama que quieres"
+                  placeholder="Por ejemplo: una biblioteca con libros, lectores y préstamos…"
+                  aria-label="Describe el diagrama que quieres"
                   className="w-full border rounded p-2 text-sm h-24"
                 />
               )}
@@ -919,7 +943,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
               {mode === 'voice' && (
                 <div className="p-4 bg-gradient-to-br from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
                   <div className="text-center">
-                    <div className="text-sm font-medium text-purple-700 mb-3">🎙️ Grabadora de Voz</div>
+                    <div className="text-sm font-medium text-purple-700 mb-3 flex items-center justify-center gap-2"><Mic size={17} aria-hidden="true" /> Cuéntanos tu idea</div>
                     
                     {/* Indicador visual de grabación */}
                     {isRecording && (
@@ -938,14 +962,14 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                     {!isRecording && recordedChunksRef.current && recordedChunksRef.current.length > 0 && (
                       <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded-lg">
                         <div className="flex items-center justify-center gap-2 text-green-700">
-                          <span className="text-lg">✅</span>
-                          <span className="text-sm font-medium">Audio grabado - Listo para enviar</span>
+                          <Check size={18} aria-hidden="true" />
+                          <span className="text-sm font-medium">{audioSubido ? `Audio "${audioSubido}" listo para enviar` : 'Audio grabado - Listo para enviar'}</span>
                         </div>
                       </div>
                     )}
                     
                     {/* Botones de control */}
-                    <div className="flex justify-center gap-3">
+                    <div className="flex flex-wrap justify-center gap-3">
                       <button
                         onClick={() => { if (!isRecording) startRecording(); else stopRecording(); }}
                         disabled={loading}
@@ -962,21 +986,55 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                           </span>
                         ) : (
                           <span className="flex items-center gap-2">
-                            🎤 Grabar
+                            <Mic size={16} aria-hidden="true" /> Grabar
                           </span>
                         )}
                       </button>
                       
+                      {/* Subir un audio ya grabado: se transcribe igual que la grabación */}
+                      {!isRecording && (
+                        <>
+                          <input
+                            ref={audioFileRef}
+                            type="file"
+                            accept="audio/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const archivo = e.target.files && e.target.files[0];
+                              e.target.value = '';
+                              if (!archivo) return;
+                              if (!archivo.type.startsWith('audio/') && !/\.(mp3|wav|ogg|opus|m4a|aac|webm|flac)$/i.test(archivo.name)) {
+                                pushMessage({ role: 'ai', text: 'Ese archivo no es un audio. Usa MP3, WAV, OGG, M4A o una nota de voz.' });
+                                return;
+                              }
+                              recordedChunksRef.current = [archivo];
+                              setAudioSubido(archivo.name);
+                              forceUpdate(Date.now());
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => audioFileRef.current && audioFileRef.current.click()}
+                            disabled={loading}
+                            title="Subir un audio grabado (nota de voz, MP3, WAV, OGG, M4A)"
+                            className={`px-4 py-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full font-medium transition-all duration-200 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <Upload size={16} className="inline-block mr-1" aria-hidden="true" /> Subir audio
+                          </button>
+                        </>
+                      )}
+
                       {/* Botón de limpiar grabación */}
                       {!isRecording && recordedChunksRef.current && recordedChunksRef.current.length > 0 && (
                         <button
                           onClick={() => {
                             recordedChunksRef.current = [];
+                            setAudioSubido('');
                             forceUpdate(Date.now()); // Forzar re-render
                           }}
                           className="px-4 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-full font-medium transition-all duration-200"
                         >
-                          🗑️ Limpiar
+                          <Trash2 size={16} className="inline-block mr-1" aria-hidden="true" /> Limpiar
                         </button>
                       )}
                     </div>
@@ -987,7 +1045,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                         ? 'Habla claramente y pulsa "Detener" cuando termines' 
                         : recordedChunksRef.current && recordedChunksRef.current.length > 0
                           ? 'Audio listo. Pulsa "Enviar" para generar el diagrama'
-                          : 'Pulsa "Grabar" y describe el diagrama que quieres crear'
+                          : 'Pulsa "Grabar" y describe el diagrama, o sube un audio ya grabado'
                       }
                     </div>
                   </div>
@@ -1069,7 +1127,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                     if (!hasCurrentDiagram && !lastAiMessage) {
                       return (
                         <div className="p-3 bg-yellow-50 border rounded text-xs text-yellow-800">
-                          No hay un diagrama disponible para modificar. Genera primero un diagrama o crea clases en el board.
+                          Genera tu primer diagrama o añade una clase al lienzo para comenzar a editar.
                         </div>
                       );
                     }
@@ -1078,13 +1136,14 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                       <div>
                         {/* Sistema de Modificación del Diagrama */}
                         <div className="mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded">
-                          <div className="text-sm font-semibold text-indigo-800 mb-2">🔧 Modificación Inteligente del Diagrama</div>
+                          <div className="text-sm font-semibold text-indigo-800 mb-2 flex items-center gap-2"><Wrench size={16} aria-hidden="true" /> Refina tu diagrama</div>
                           <div className="text-xs text-indigo-600 mb-3">
                             Describe los cambios que quieres hacer. Ejemplos: "elimina la clase Cliente", "añade atributo nombre a Usuario"
                           </div>
                           
                           <textarea 
                             className="w-full border border-indigo-200 rounded p-3 text-sm h-24 mb-3 focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400" 
+                            aria-label="Cambios que quieres hacer al diagrama"
                             placeholder="Describe la modificación que quieres realizar...&#10;• elimina la clase Cliente&#10;• añade atributo email tipo string a Usuario&#10;• crea relación entre Pedido y Cliente&#10;• actualiza el método calcular en Factura"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
@@ -1098,7 +1157,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                               className="flex items-center justify-between w-full px-3 py-2 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors"
                             >
                               <span className="flex items-center gap-2">
-                                📚 Ejemplos de comandos soportados
+                                <BookOpen size={14} aria-hidden="true" /> Ideas para empezar
                               </span>
                               <svg 
                                 className={`w-4 h-4 transform transition-transform ${showExamples ? 'rotate-180' : ''}`} 
@@ -1298,6 +1357,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                                 
                                 <textarea 
                                   className="w-full border border-amber-200 rounded p-2 text-sm h-16 mb-2 focus:ring-2 focus:ring-amber-400 focus:border-amber-400" 
+                                  aria-label="Respuesta a las preguntas del asistente"
                                   placeholder="Responde a las preguntas para continuar con la modificación..."
                                   value={clarificationResponse}
                                   onChange={(e) => setClarificationResponse(e.target.value)}
@@ -1449,13 +1509,14 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
             </div>
 
             {/* Messages preview area - Mejorado con scroll y contenido responsivo */}
-            <div className="relative">
-              <div className="max-h-40 overflow-y-auto border bg-white rounded-lg shadow-sm scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            <div className="studio-ai-conversation relative">
+              <div className="studio-ai-messages max-h-40 overflow-y-auto border bg-white rounded-lg shadow-sm scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" role="log" aria-label="Conversación con el asistente" aria-live="polite">
                 <div className="p-3 space-y-3">
                   {messages.length === 0 && (
-                    <div className="text-center py-4">
-                      <div className="text-gray-400 text-sm mb-2">📝 Historial de conversación</div>
-                      <div className="text-xs text-gray-500">Envía texto, imagen o nota de voz para comenzar</div>
+                    <div className="studio-ai-empty text-center py-4">
+                      <MessageSquareText size={22} className="mx-auto mb-2" aria-hidden="true" />
+                      <div className="text-gray-400 text-sm mb-2">Las buenas ideas empiezan aquí</div>
+                      <div className="text-xs text-gray-500">Tu conversación y tus propuestas aparecerán en este espacio.</div>
                     </div>
                   )}
                   
@@ -1471,7 +1532,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                           <div className={`text-xs font-medium mb-1 ${
                             m.role === 'user' ? 'text-indigo-100' : 'text-gray-500'
                           }`}>
-                            {m.role === 'user' ? '👤 Tú' : '🤖 IA Assistant'}
+                            {m.role === 'user' ? 'Tú' : 'Tu copiloto'}
                           </div>
                           
                           {/* Contenido del mensaje con scroll horizontal si es necesario */}
@@ -1547,7 +1608,7 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
                             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
                             <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
                           </div>
-                          <span>IA está generando...</span>
+                          <span>Dando forma a tu idea…</span>
                         </div>
                       </div>
                     </div>
@@ -1564,19 +1625,15 @@ export default function AiBubble({ boardId, nodes, edges, setNodes, setEdges, up
           </div> {/* Cierre del área de scroll del cuerpo */}
 
           {/* Footer */}
-          <div className="px-3 py-2 bg-gradient-to-r from-indigo-400 to-purple-600 flex items-center gap-2">
+          <div className={embedded ? 'studio-ai-footer' : 'assistant-footer px-4 py-3 flex items-center gap-2'}>
             <div className="flex-1">
-              <div className="text-white text-sm">
-                {mode === 'text' ? 'Texto' : 
-                 mode === 'voice' ? 'Nota de voz' : 
-                 mode === 'image' ? 'Imagen' : 
-                 mode === 'edit' ? 'Modificar Diagrama' : 
-                 'IA Assistant'}
+              <div className="studio-ai-status text-sm">
+                {loading ? 'Trabajando en tu diagrama' : motorIA === 'local' ? 'Disponible sin internet' : 'Listo para crear'}
               </div>
             </div>
             <div>
-              <button onClick={handleSend} disabled={loading} className="bg-white text-indigo-700 px-3 py-1 rounded-full">
-                {loading ? 'Generando…' : 'Enviar'}
+              <button onClick={handleSend} disabled={loading} className="studio-ai-send btn-primary">
+                {loading ? 'Generando…' : 'Enviar'} <Send size={15} aria-hidden="true" />
               </button>
             </div>
           </div>

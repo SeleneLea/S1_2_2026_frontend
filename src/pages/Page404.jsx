@@ -1,24 +1,5 @@
-import React from 'react'
-
-const Page404 = () => {
-  return (
-    <section className="bg-white">
-    <div className="mx-auto max-w-screen-xl px-4 py-8 lg:px-6 lg:py-16">
-        <div className="mx-auto max-w-screen-sm text-center">
-            <h1 className="mb-4 text-7xl font-extrabold tracking-tight text-primary lg:text-9xl">
-                404
-            </h1>
-            <p className="mb-4 text-3xl font-bold tracking-tight text-gray-900 md:text-4xl">
-                Something's missing.
-            </p>
-            <p className="mb-4 text-lg font-light text-gray-500">
-                Sorry, we can't find that page. You'll find lots to
-                explore on the home page.
-            </p>
-        </div>
-    </div>
-</section>
-  )
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Unplug } from 'lucide-react';
+export default function Page404() {
+  return <main className="not-found page-width"><span className="not-found-icon"><Unplug size={38} /></span><span className="eyebrow">ERROR 404 · CONEXIÓN PERDIDA</span><h1>Esta idea aún<br />no tiene página.</h1><p>La página que buscas no existe o cambió de dirección.</p><Link to="/" className="btn-primary"><ArrowLeft size={17} /> Volver al inicio</Link></main>;
 }
-
-export default Page404

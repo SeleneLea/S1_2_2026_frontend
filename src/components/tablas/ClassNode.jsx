@@ -1,7 +1,6 @@
 // ClassNode.jsx
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
-import '../../../src/index.css';
 import { mostrarAtributo, mostrarMetodo, etiquetaEstereotipo } from '../../utils/umlParser.js';
 
 function ClassNode({ data, isConnectable }) {
@@ -15,12 +14,12 @@ function ClassNode({ data, isConnectable }) {
       <div style={{ 
         width: 12, 
         height: 12, 
-        background: '#3b82f6', // Azul más visible
+        background: 'var(--sage-ink)', // Azul más visible
         borderRadius: '50%',
         border: '2px solid #ffffff',
         position: 'relative',
         zIndex: 1001,
-        boxShadow: '0 0 6px rgba(59, 130, 246, 0.8)'
+        boxShadow: '0 0 6px var(--color-shadow-elevated)'
       }}>
         <Handle
           type="target"
@@ -34,7 +33,7 @@ function ClassNode({ data, isConnectable }) {
             transform: 'translate(-50%, -50%)',
             width: 12,
             height: 12,
-            background: '#3b82f6',
+            background: 'var(--sage-ink)',
             border: '2px solid #fff'
           }}
         />
@@ -108,7 +107,7 @@ function ClassNode({ data, isConnectable }) {
               top: '25%',
               width: '18px',
               height: '18px',
-              border: '3px solid #3b82f6',
+              border: '3px solid var(--sage-ink)',
               background: '#ffffff',
               borderRadius: '50%',
               cursor: 'crosshair'
@@ -124,7 +123,7 @@ function ClassNode({ data, isConnectable }) {
               top: '50%',
               width: '18px',
               height: '18px',
-              border: '3px solid #3b82f6',
+              border: '3px solid var(--sage-ink)',
               background: '#ffffff',
               borderRadius: '50%',
               cursor: 'crosshair'
@@ -140,7 +139,7 @@ function ClassNode({ data, isConnectable }) {
               top: '75%',
               width: '18px',
               height: '18px',
-              border: '3px solid #3b82f6',
+              border: '3px solid var(--sage-ink)',
               background: '#ffffff',
               borderRadius: '50%',
               cursor: 'crosshair'

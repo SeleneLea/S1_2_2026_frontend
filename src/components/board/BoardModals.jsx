@@ -28,10 +28,11 @@ const BoardModals = ({
      >
        <form onSubmit={handleSubmit} className="space-y-6">
          <div>
-           <label className="block text-sm font-semibold text-gray-700 mb-2">
+           <label htmlFor="board-name-create" className="block text-sm font-semibold text-gray-700 mb-2">
              Nombre del Tablero
            </label>
            <input
+             id="board-name-create"
              type="text"
              value={description}
              onChange={(e) => setDescription(e.target.value)}
@@ -72,10 +73,11 @@ const BoardModals = ({
      >
        <form onSubmit={handleEditSubmit} className="space-y-6">
          <div>
-           <label className="block text-sm font-semibold text-gray-700 mb-2">
+           <label htmlFor="board-name-edit" className="block text-sm font-semibold text-gray-700 mb-2">
              Nombre del Tablero
            </label>
            <input
+             id="board-name-edit"
              type="text"
              value={description}
              onChange={(e) => setDescription(e.target.value)}
@@ -144,11 +146,12 @@ const BoardModals = ({
 
            {/* Invitación por Email */}
            <div className="w-full">
-             <label className="block text-sm font-semibold text-gray-700 mb-2">
+             <label htmlFor="invite-email" className="block text-sm font-semibold text-gray-700 mb-2">
                Invitar por correo electrónico
              </label>
              <div className="flex gap-2">
                <input
+                 id="invite-email"
                  type="email"
                  placeholder="correo@ejemplo.com"
                  className="input-modern flex-1"

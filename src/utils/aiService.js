@@ -66,10 +66,30 @@ export async function modifyDiagram({
   mode = 'modify', 
   dryRun = false, 
   clarification = null, 
-  originalPrompt = null, 
-  salaId = null 
+  originalPrompt = null,
+  salaId = null,
+  file = null
 } = {}) {
   const url = `${API_BASE}/apis/ai/modify-diagram`;
+
+  // Con una foto o captura, la imagen y el estado actual viajan como formulario
+  if (file) {
+    const form = new FormData();
+    form.append('image', file);
+    form.append('prompt', prompt || '');
+    form.append('nodes', JSON.stringify(nodes || []));
+    form.append('edges', JSON.stringify(edges || []));
+    form.append('mode', mode);
+    form.append('salaId', salaId || '');
+    const resp = await fetch(url, { method: 'POST', credentials: 'include', body: form });
+    if (!resp.ok) {
+      const text = await resp.text();
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch (e) { /* respuesta sin JSON */ }
+      throw errorDeRespuesta(resp, parsed, 'La IA no pudo leer la imagen.');
+    }
+    return await resp.json();
+  }
   
   try {
     const requestBody = {

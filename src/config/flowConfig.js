@@ -18,6 +18,6 @@ export const defaultEdgeOptions = {
   animated: false,
   style: {
     strokeWidth: 1.5,
-    stroke: '#333'
+    stroke: 'var(--color-text-primary)'
   }
 };

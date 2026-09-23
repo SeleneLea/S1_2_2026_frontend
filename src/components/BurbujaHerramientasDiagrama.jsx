@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useReactFlow } from '@xyflow/react';
+import { CheckCheck, CircleX, Copy, Eraser, FileJson, Image, LayoutGrid, LoaderCircle, Trash2 } from 'lucide-react';
 import domtoimage from 'dom-to-image-more';
 import { mensajeDeError } from '../utils/mensajesError';
 
@@ -22,6 +23,7 @@ const BurbujaHerramientasDiagrama = ({
   updateBoardData: updateBoardDataProp,
   userEmail = null,
   defaultOpen = false,
+  embedded = false,
   className = ''
 }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -30,6 +32,7 @@ const BurbujaHerramientasDiagrama = ({
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
+    if (embedded) return;
     const handleClickOutside = (event) => {
       if (
         panelRef.current &&
@@ -44,9 +47,10 @@ const BurbujaHerramientasDiagrama = ({
       document.addEventListener('mousedown', handleClickOutside);
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
-  }, [isOpen]);
+  }, [isOpen, embedded]);
 
   useEffect(() => {
+    if (embedded) return;
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') setIsOpen(false);
     };
@@ -54,7 +58,7 @@ const BurbujaHerramientasDiagrama = ({
       document.addEventListener('keydown', handleKeyDown);
       return () => document.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen]);
+  }, [isOpen, embedded]);
 
   const noopUpdate = async (newNodes, newEdges) => {
     console.warn('updateBoardData not provided. Changes will be local only.');
@@ -251,6 +255,84 @@ const BurbujaHerramientasDiagrama = ({
     { id: 'clear-diagram', label: 'Limpiar Diagrama', icon: (<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>), action: limpiarDiagrama, disabled: nodes.length === 0 && edges.length === 0, danger: true }
   ];
 
+  if (embedded) {
+    const grupos = [
+      {
+        title: 'Organizar',
+        actions: [
+          { id: 'auto-organize', label: 'Ordenar el lienzo', description: 'Distribuye los elementos en una cuadrícula.', Icon: LayoutGrid }
+        ]
+      },
+      {
+        title: 'Selección',
+        actions: [
+          { id: 'select-all', label: 'Seleccionar todo', Icon: CheckCheck },
+          { id: 'deselect-all', label: 'Quitar selección', Icon: CircleX },
+          { id: 'duplicate-selected', label: 'Duplicar elementos', Icon: Copy }
+        ]
+      },
+      {
+        title: 'Descargar',
+        actions: [
+          { id: 'export-img', label: exporting ? 'Preparando imagen…' : 'Imagen PNG', description: 'Tu diagrama completo, listo para compartir.', Icon: exporting ? LoaderCircle : Image },
+          { id: 'export-json', label: 'Archivo JSON', description: 'Guarda una copia editable del diagrama.', Icon: FileJson }
+        ]
+      },
+      {
+        title: 'Zona de cuidado',
+        actions: [
+          { id: 'delete-selected', label: 'Eliminar selección', Icon: Trash2 },
+          { id: 'clear-diagram', label: 'Vaciar el lienzo', Icon: Eraser }
+        ]
+      }
+    ];
+
+    return (
+      <section className={`studio-tools ${className}`} aria-label="Herramientas del diagrama">
+        <header className="studio-tools-header">
+          <span className="studio-tools-eyebrow">Tu espacio de trabajo</span>
+          <h3>Todo en su lugar.</h3>
+          <p>Organiza tus ideas y lleva tu diagrama contigo.</p>
+        </header>
+
+        <div className="studio-tools-stats" aria-label="Resumen del diagrama">
+          <div><strong>{nodes.length}</strong><span>Elementos</span></div>
+          <div><strong>{edges.length}</strong><span>Relaciones</span></div>
+          <div><strong>{selectedNodeIds.length + selectedEdgeIds.length}</strong><span>Seleccionados</span></div>
+        </div>
+
+        {grupos.map((grupo) => (
+          <section className="studio-tools-section" key={grupo.title} aria-label={grupo.title}>
+            <h4 className="studio-tools-section-title">{grupo.title}</h4>
+            <div className="studio-tools-actions">
+              {grupo.actions.map(({ id, label, description, Icon }) => {
+                const herramienta = herramientas.find((item) => item.id === id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={herramienta.action}
+                    disabled={herramienta.disabled}
+                    aria-busy={id === 'export-img' && exporting}
+                    className={`studio-tool-action${herramienta.danger ? ' is-danger' : ''}`}
+                  >
+                    <span className="studio-tool-icon">
+                      <Icon size={18} strokeWidth={1.7} aria-hidden="true" className={id === 'export-img' && exporting ? 'animate-spin' : undefined} />
+                    </span>
+                    <span className="studio-tool-copy">
+                      <span>{label}</span>
+                      {description && <small className="studio-tool-description">{description}</small>}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </section>
+    );
+  }
+
   return (
     <div className={`fixed bottom-6 right-6 z-50 ${className}`}>
       {/* Panel de herramientas */}
@@ -322,8 +404,8 @@ const BurbujaHerramientasDiagrama = ({
         ref={fabRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          w-14 h-14 bg-blue-600 dark:bg-blue-500 text-white rounded-full shadow-lg 
-          hover:bg-blue-700 dark:hover:bg-blue-600 focus:outline-none focus:ring-4 
+          tools-fab w-14 h-14 bg-blue-600 dark:bg-blue-500 text-white rounded-full shadow-lg
+          hover:bg-blue-700 dark:hover:bg-blue-600 focus:outline-none focus:ring-4
           focus:ring-blue-300 dark:focus:ring-blue-800 transition-all duration-200
           flex items-center justify-center group
           ${isOpen ? 'rotate-45' : 'hover:scale-110'}

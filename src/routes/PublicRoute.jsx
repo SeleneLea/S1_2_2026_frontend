@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import HomePage from '../pages/HomePage'
 import LoginPage from '../pages/LoginPage'
 import RegisterPage from '../pages/RegisterPage'
@@ -9,11 +9,16 @@ import NavBar from '../components/navbar/Navbar'
 import Board from '../pages/Board'
 
 
+const AppNavigation = () => {
+  const { pathname } = useLocation();
+  return /^\/board\/[^/]+\/?$/.test(pathname) ? null : <NavBar />;
+};
+
 const PublicRoute = () => {
   return (
 
     <BrowserRouter>   
-    <NavBar/>
+    <AppNavigation/>
   
         <Routes>
          <Route path='/' element= {<HomePage/>} />

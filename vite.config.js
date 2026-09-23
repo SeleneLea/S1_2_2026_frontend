@@ -39,8 +39,8 @@ export default defineConfig({
         lang: 'es',
         start_url: '/',
         display: 'standalone',
-        background_color: '#ffffff',
-        theme_color: '#4f46e5',
+        background_color: '#F8F7F2',
+        theme_color: '#2A363B',
         id: '/',
         scope: '/',
         // Chrome y Edge solo ofrecen instalar si hay iconos PNG de 192 y 512 px
