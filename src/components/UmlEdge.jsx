@@ -44,43 +44,43 @@ const UML_RELATIONSHIP_TYPES = {
     markerStart: 'none',
     markerEnd: 'none',
     strokeStyle: 'solid',
-    stroke: '#000000'
+    stroke: 'var(--color-text-primary)'
   },
   Aggregation: {
     markerStart: 'none',
     markerEnd: 'diamond',
     strokeStyle: 'solid',
-    stroke: '#1976d2'
+    stroke: 'var(--sage-ink)'
   },
   Composition: {
     markerStart: 'none',
     markerEnd: 'diamond-filled',
     strokeStyle: 'solid',
-    stroke: '#d32f2f'
+    stroke: 'var(--peach-ink)'
   },
   Generalization: {
     markerStart: 'none',
     markerEnd: 'generalization',
     strokeStyle: 'solid',
-    stroke: '#000000'
+    stroke: 'var(--color-text-primary)'
   },
   Implementation: {
     markerStart: 'none',
     markerEnd: 'generalization',
     strokeStyle: 'dashed',
-    stroke: '#000000'
+    stroke: 'var(--color-text-primary)'
   },
   Dependency: {
     markerStart: 'none',
     markerEnd: 'arrow',
     strokeStyle: 'dashed',
-    stroke: '#666666'
+    stroke: 'var(--color-text-secondary)'
   },
   NoteConnection: {
     markerStart: 'none',
     markerEnd: 'none',
     strokeStyle: 'dashed',
-    stroke: '#fbbf24' // Color amarillo para conexiones de notas
+    stroke: 'var(--peach-ink)' // Color amarillo para conexiones de notas
   }
 };
 
@@ -305,7 +305,7 @@ const UmlEdge = ({
   if (isNoteConnection) {
     const noteStyle = {
       ...style,
-      stroke: '#fbbf24', // Amarillo para conexiones de notas
+      stroke: 'var(--peach-ink)', // Amarillo para conexiones de notas
       strokeWidth: 1.5,
       strokeDasharray: '4,4', // Línea punteada ligera
       pointerEvents: 'none',
@@ -328,7 +328,7 @@ const UmlEdge = ({
   // Estilos mejorados con feedback visual para relaciones normales
   const edgeStyle = {
     ...style,
-    stroke: isSelected ? '#dc2626' : edgeType.stroke, // Rojo cuando está seleccionado
+    stroke: isSelected ? 'var(--sage-ink)' : edgeType.stroke, // Rojo cuando está seleccionado
     strokeWidth: isSelected ? 3 : 2, // Más grueso cuando está seleccionado
     strokeDasharray: edgeType.strokeStyle === 'dashed' ? '5,5' : 'none',
     cursor: 'pointer',
@@ -337,7 +337,7 @@ const UmlEdge = ({
       : 'drop-shadow(0 1px 2px rgb(0 0 0 / 0.1))'
   };
   // Vista previa de una propuesta de la IA: verde lo nuevo, naranja lo que cambia, rojo lo que se quita
-  const colorPropuesta = { nueva: '#16a34a', modificada: '#d97706', eliminada: '#dc2626' }[data?._propuesta];
+  const colorPropuesta = { nueva: 'var(--color-success)', modificada: 'var(--color-warning)', eliminada: 'var(--color-error)' }[data?._propuesta];
   if (colorPropuesta) Object.assign(edgeStyle, { stroke: colorPropuesta, strokeWidth: 2.5, strokeDasharray: '6,4' });
 
   // Estilos para el área de click invisible
@@ -424,7 +424,7 @@ const UmlEdge = ({
         <path
           d={trazoClaseAsociacion({ x: labelX, y: labelY }, nodoClaseAsociacion)}
           fill="none"
-          stroke="#334155"
+          stroke="var(--sage-ink)"
           strokeWidth={2}
           strokeDasharray="6,4"
           style={{ pointerEvents: 'none' }}
@@ -437,7 +437,7 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: 'white',
+              background: 'var(--color-surface)',
               padding: '4px 8px',
               borderRadius: '4px',
               fontSize: '12px',
@@ -457,14 +457,14 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: 'rgba(255, 255, 255, 0.95)',
+              background: 'var(--color-surface)',
               padding: '3px 6px',
               borderRadius: '6px',
               fontSize: '11px',
               fontFamily: 'monospace',
               fontWeight: 'bold',
-              border: '2px solid #3b82f6',
-              color: '#1e40af',
+              border: '2px solid var(--sage-ink)',
+              color: 'var(--sage-ink)',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               transform: `translate(-50%, -50%) translate(${posicionInicio.x}px,${posicionInicio.y}px)`,
               zIndex: 1000
@@ -481,14 +481,14 @@ const UmlEdge = ({
           <div
             style={{
               position: 'absolute',
-              background: 'rgba(255, 255, 255, 0.95)',
+              background: 'var(--color-surface)',
               padding: '3px 6px',
               borderRadius: '6px',
               fontSize: '11px',
               fontFamily: 'monospace',
               fontWeight: 'bold',
-              border: '2px solid #10b981',
-              color: '#059669',
+              border: '2px solid var(--sage-ink)',
+              color: 'var(--sage-ink)',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               transform: `translate(-50%, -50%) translate(${posicionFin.x}px,${posicionFin.y}px)`,
               zIndex: 1000

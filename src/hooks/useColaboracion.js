@@ -237,6 +237,12 @@ export const useColaboracion = (socket, salaId, usuario = null) => {
     });
   }), [socket, salaId, mensajes]);
 
+  /** Código -> diagrama: las diferencias con un proyecto importado quedan como propuesta en el chat de la IA. */
+  const proponerDesdeCodigo = useCallback((cambios, origen) => new Promise((resolve) => {
+    if (!socket) { resolve({ ok: false, mensaje: 'Sin conexión con el servidor.' }); return; }
+    socket.emit('codigo:proponer', { salaId, cambios, origen }, (r) => resolve(r || { ok: false }));
+  }), [socket, salaId]);
+
   const decidir = useCallback((propuestaId, decision) => new Promise((resolve) => {
     if (!socket) { resolve({ ok: false, mensaje: 'Sin conexión con el servidor: decide la propuesta cuando vuelva.' }); return; }
     socket.emit('propuesta:decidir', { salaId, propuestaId, decision }, (r) => resolve(r || { ok: false }));
@@ -248,22 +254,25 @@ export const useColaboracion = (socket, salaId, usuario = null) => {
     [propuestas],
   );
 
-  /** La última revisión de la IA con observaciones sobre clases (para marcarlas en la pizarra). */
-  const ultimaRevision = useMemo(
-    () => [...mensajes].reverse().find((m) => m.tipo === 'ia' && m.datos?.observaciones?.length) || null,
-    [mensajes],
-  );
-
   // Lo del servidor y, al final, lo escrito sin conexión que todavía no se compartió
   const mensajesVisibles = useMemo(
     () => (pendientes.length ? [...mensajes, ...pendientes.map((e) => comoMensaje(e, { id: usuarioId, nombre: usuarioNombre }))] : mensajes),
     [mensajes, pendientes, usuarioId, usuarioNombre],
   );
 
+  /**
+   * La última revisión con observaciones sobre clases (para marcarlas en la pizarra). Incluye la
+   * revisión de la IA local hecha sin conexión, aunque todavía no se haya compartido.
+   */
+  const ultimaRevision = useMemo(
+    () => [...mensajesVisibles].reverse().find((m) => m.tipo === 'ia' && m.datos?.observaciones?.length) || null,
+    [mensajesVisibles],
+  );
+
   return {
     mensajes: mensajesVisibles, propuestas, propuestaPendiente, ultimaRevision, estadoIA, cambios, bienvenida, cargado, sinLeer,
     hayAnteriores, enviar, enviarAdjunto, cargarAnteriores, decidir, cerrarBienvenida: () => setBienvenida(null),
-    agregarSinConexion, pendientes: pendientes.length,
+    agregarSinConexion, pendientes: pendientes.length, proponerDesdeCodigo,
     // Sin canal: los dos chats
     marcarLeidos: (canal) => setSinLeer((n) => (canal ? { ...n, [canal]: 0 } : { equipo: 0, ia: 0 })),
   };

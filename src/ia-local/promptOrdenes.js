@@ -26,10 +26,18 @@ elimina el atributo stock de Producto
 renombra la clase Producto a Articulo
 
 Tipos permitidos: texto, entero, decimal, real, booleano, fecha, fecha y hora, hora.
-Clases en singular. No repitas atributos. No agregues id.`;
+Clases en singular. No repitas atributos. No agregues id.
+Si el pedido cambia el diagrama actual, usa los nombres de sus clases tal como están abajo y no crees clases nuevas.
+Los ejemplos solo muestran el formato: nunca copies sus clases.`;
 
-// Dos ejemplos cortos: asociaciones con cardinalidad, herencia y composición
+// Ejemplos cortos: asociaciones con cardinalidad, herencia y composición, y uno que solo modifica
+// (sin él, un modelo chico responde a "cambia…" creando las clases del ejemplo de la tienda)
 const EJEMPLOS = [
+  [
+    'Pedido: cambia el nombre de la clase alumno a Estudiante y quita el atributo edad de Estudiante',
+    `renombra la clase alumno a Estudiante
+elimina el atributo edad de Estudiante`,
+  ],
   [
     'Pedido: una biblioteca donde los socios piden libros prestados',
     `clase Libro: titulo texto, isbn texto, disponible booleano
@@ -49,6 +57,20 @@ relacion Cliente 1 a muchos Pedido "realiza"
 composicion Pedido de LineaPedido`,
   ],
 ];
+
+const lineaComparable = (l) => l.toLowerCase().replace(/\s+/g, ' ').trim();
+const LINEAS_DE_EJEMPLO = new Set(EJEMPLOS.flatMap(([, respuesta]) => respuesta.split('\n').map(lineaComparable)));
+
+/**
+ * ¿El modelo devolvió un ejemplo del prompt en lugar de responder al pedido? Un modelo chico que no
+ * entiende repite la tienda o la biblioteca de los ejemplos; si el diagrama justo tiene clases con
+ * esos nombres (Cliente, Pedido), sus órdenes parecerían válidas.
+ */
+export const copiaUnEjemplo = (ordenes) => {
+  const lineas = String(ordenes || '').split('\n').map(lineaComparable).filter(Boolean);
+  const copiadas = lineas.filter((l) => LINEAS_DE_EJEMPLO.has(l)).length;
+  return copiadas >= 2 && copiadas * 2 >= lineas.length;
+};
 
 const nombreAtributo = (a) => String(a).replace(/^[+\-#~]\s*/, '').split(/[:=]/)[0].trim();
 

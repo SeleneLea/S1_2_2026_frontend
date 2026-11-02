@@ -21,7 +21,7 @@ export const TOUR_TABLEROS = [
     selector: '[data-tour="importar-xml"]',
     titulo: 'O importa uno existente',
     texto:
-      'Si ya tienes un diagrama en Enterprise Architect, impórtalo: sirve el proyecto .EAP tal como lo guarda EA o un archivo XMI. Llegan las clases, atributos, relaciones y la posición de cada clase en el lienzo.',
+      'Si ya tienes un diagrama en Enterprise Architect, impórtalo: sirve el proyecto .EAP tal como lo guarda EA o un archivo XMI. Llegan las clases, atributos, relaciones y la posición de cada clase en el lienzo. También puedes subir el código de un backend Spring Boot (.zip o .java): sus entidades forman el tablero y la app Flutter que generes usa sus rutas.',
   },
   {
     selector: '[data-tour="invitar"]',

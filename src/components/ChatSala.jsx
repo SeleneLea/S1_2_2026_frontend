@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
+import { MessagesSquare, Users, Sparkles, History, Laptop, WifiOff, Clock3, ImageIcon, Mic, Square, Paperclip, Lightbulb, Send, FileDown, ChevronDown, X } from 'lucide-react';
 import { canalDe, mencionaALaIA } from '../utils/canalesChat.js';
-import { SUGERENCIAS_SIN_CONEXION } from '../utils/respuestaIALocal.js';
+import { SUGERENCIAS_SIN_CONEXION, pideRevision } from '../utils/respuestaIALocal.js';
 import PanelIALocal from './PanelIALocal';
 
 /**
- * Chats de la sala, en un mismo panel flotante: el del equipo (entre personas) y el de la IA
+ * Chats de la sala, en el panel "Chat" del estudio: el del equipo (entre personas) y el de la IA
  * compartida, un integrante más. En el de la IA todos ven todo: lo que se le pide, lo que
  * responde y lo que propone. Los cambios de la IA llegan como propuesta, que
  * cualquiera acepta o rechaza. También muestra el historial de quién hizo cada cambio.
@@ -22,34 +23,34 @@ const diaYHora = (fecha) => new Date(fecha).toLocaleString('es-BO', { day: '2-di
 const Texto = ({ texto }) => {
   const enLinea = (linea, k) => linea.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((parte, i) => {
     if (/^\*\*[^*]+\*\*$/.test(parte)) return <strong key={`${k}-${i}`}>{parte.slice(2, -2)}</strong>;
-    if (/^`[^`]+`$/.test(parte)) return <code key={`${k}-${i}`} className="px-1 rounded bg-black/5 text-[0.85em]">{parte.slice(1, -1)}</code>;
+    if (/^`[^`]+`$/.test(parte)) return <code key={`${k}-${i}`}>{parte.slice(1, -1)}</code>;
     return parte;
   });
   return (
-    <div className="space-y-0.5 break-words">
+    <div className="studio-chat-text">
       {String(texto || '').split('\n').map((linea, i) => {
         const item = linea.match(/^\s*[-*•]\s+(.*)/);
-        if (item) return <div key={i} className="pl-3 relative"><span className="absolute left-0">•</span>{enLinea(item[1], i)}</div>;
-        return <div key={i} className={linea.trim() ? '' : 'h-2'}>{enLinea(linea, i)}</div>;
+        if (item) return <div key={i} className="studio-chat-bullet">{enLinea(item[1], i)}</div>;
+        return <div key={i} className={linea.trim() ? '' : 'studio-chat-gap'}>{enLinea(linea, i)}</div>;
       })}
     </div>
   );
 };
 
-const COLOR_GRAVEDAD = { error: 'text-red-700 bg-red-50 border-red-200', aviso: 'text-amber-800 bg-amber-50 border-amber-200', sugerencia: 'text-blue-800 bg-blue-50 border-blue-200' };
 const ESTADO_PROPUESTA = {
-  pendiente: ['Pendiente: decide el equipo', 'bg-amber-100 text-amber-900'],
-  aceptada: ['Aceptada', 'bg-green-100 text-green-800'],
-  rechazada: ['Rechazada', 'bg-gray-200 text-gray-700'],
-  desactualizada: ['Desactualizada', 'bg-red-100 text-red-800'],
-  reemplazada: ['Reemplazada por un ajuste', 'bg-gray-200 text-gray-700'],
-  aplicando: ['Aplicando…', 'bg-blue-100 text-blue-800'],
+  pendiente: 'Pendiente: decide el equipo',
+  aceptada: 'Aceptada',
+  rechazada: 'Rechazada',
+  desactualizada: 'Desactualizada',
+  reemplazada: 'Reemplazada por un ajuste',
+  aplicando: 'Aplicando…',
 };
 
 const TarjetaPropuesta = ({ propuesta, onDecidir, onAjustar }) => {
   const [enviando, setEnviando] = useState(false);
   if (!propuesta) return null;
-  const [etiqueta, color] = ESTADO_PROPUESTA[propuesta.estado] || ESTADO_PROPUESTA.pendiente;
+  const estado = ESTADO_PROPUESTA[propuesta.estado] ? propuesta.estado : 'pendiente';
+  const etiqueta = ESTADO_PROPUESTA[estado];
   const decidir = async (decision) => {
     setEnviando(true);
     const r = await onDecidir(propuesta.id, decision);
@@ -57,26 +58,26 @@ const TarjetaPropuesta = ({ propuesta, onDecidir, onAjustar }) => {
     if (!r?.ok && r?.mensaje) Swal.fire({ icon: 'info', title: 'No se aplicó', text: r.mensaje });
   };
   return (
-    <div className="mt-2 rounded-lg border border-violet-200 bg-white p-2 text-xs">
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <span className="font-semibold text-violet-800">Propuesta: {propuesta.resumen?.length || 0} cambio{propuesta.resumen?.length === 1 ? '' : 's'}</span>
-        <span className={`px-1.5 py-0.5 rounded ${color}`}>{etiqueta}</span>
+    <div className="studio-chat-proposal">
+      <div className="studio-chat-proposal-head">
+        <strong>Propuesta: {propuesta.resumen?.length || 0} cambio{propuesta.resumen?.length === 1 ? '' : 's'}</strong>
+        <span className={`studio-chat-status is-${estado}`}>{etiqueta}</span>
       </div>
-      <ul className="space-y-0.5 text-gray-700">
-        {(propuesta.resumen || []).map((r, i) => <li key={i}>• {r}</li>)}
+      <ul>
+        {(propuesta.resumen || []).map((r, i) => <li key={i}>{r}</li>)}
       </ul>
       {propuesta.estado === 'pendiente' ? (
         <>
-          <p className="mt-1 text-[11px] text-gray-500">Se ve en la pizarra con borde punteado. Cualquiera del equipo puede decidir.</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <button disabled={enviando} onClick={() => decidir('aceptar')} className="px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">Aceptar</button>
-            <button disabled={enviando} onClick={() => decidir('rechazar')} className="px-2 py-1 rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-50">Rechazar</button>
-            <button disabled={enviando} onClick={() => onAjustar(propuesta.id)} className="px-2 py-1 rounded border border-violet-300 text-violet-800 hover:bg-violet-50">Pedir ajuste</button>
+          <p className="studio-chat-hint">Se ve en la pizarra con borde punteado. Cualquiera del equipo puede decidir.</p>
+          <div className="studio-chat-decision">
+            <button disabled={enviando} onClick={() => decidir('aceptar')} className="btn-success">Aceptar</button>
+            <button disabled={enviando} onClick={() => decidir('rechazar')} className="btn-secondary">Rechazar</button>
+            <button disabled={enviando} onClick={() => onAjustar(propuesta.id)} className="studio-chat-link">Pedir ajuste</button>
           </div>
         </>
       ) : (
         propuesta.decididoPorNombre && (
-          <p className="mt-1 text-[11px] text-gray-500">
+          <p className="studio-chat-hint">
             {etiqueta} por {propuesta.decididoPorNombre}{propuesta.motivo ? `: ${propuesta.motivo}` : ''}
           </p>
         )
@@ -87,53 +88,57 @@ const TarjetaPropuesta = ({ propuesta, onDecidir, onAjustar }) => {
 
 const Mensaje = ({ m, propio, usuarioId, propuesta, onDecidir, onAjustar, onEnfocarClase, onQuitarMarcas, onAplicarIdea }) => {
   if (m.tipo === 'sistema') {
-    return <div className="text-center text-[11px] text-gray-500 px-4 py-1"><Texto texto={m.texto} /></div>;
+    return <div className="studio-chat-system"><Texto texto={m.texto} /></div>;
   }
   const esIA = m.tipo === 'ia';
   const d = m.datos || {};
   const deIALocal = esIA && (d.proveedor === 'IA local' && d.sinConexion);
   // De otra persona, hecho sin conexión: se aclara de quién era la IA local
   const ajeno = deIALocal && d.pedidoPor && !d.pendiente && String(d.pedidoPorId) !== String(usuarioId);
+  const autor = d.origen === 'codigo' ? <><FileDown size={11} aria-hidden="true" /> Desde el código</>
+    : deIALocal ? <><Laptop size={11} aria-hidden="true" /> IA local{ajeno ? ` de ${d.pedidoPor}` : ''}</>
+      : esIA ? <><Sparkles size={11} aria-hidden="true" /> IA</>
+        : propio ? 'Tú' : m.autorNombre;
   return (
-    <div className={`flex ${propio ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[88%] rounded-xl px-3 py-2 text-sm shadow-sm ${esIA ? 'bg-violet-50 border border-violet-200' : propio ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200'}`}>
-        <div className={`flex items-center gap-2 text-[11px] mb-0.5 ${propio ? 'text-blue-100' : 'text-gray-500'}`}>
-          <span className="font-semibold">{deIALocal ? `💻 IA local${ajeno ? ` de ${d.pedidoPor}` : ''}` : esIA ? '🤖 IA' : propio ? 'Tú' : m.autorNombre}</span>
+    <div className={`studio-chat-row ${propio ? 'is-own' : ''}`}>
+      <div className={`studio-chat-bubble ${esIA ? 'is-ia' : propio ? 'is-own' : ''}`}>
+        <div className="studio-chat-meta">
+          <span className="studio-chat-author">{autor}</span>
           <span>{hora(d.escritoEn || m.creadoEn)}</span>
-          {esIA && d.proveedor && !deIALocal && <span className="px-1 rounded bg-violet-100 text-violet-700">{d.proveedor}</span>}
-          {d.pendiente && <span className={`px-1 rounded ${propio ? 'bg-blue-500' : 'bg-amber-100 text-amber-800'}`} title="Se compartirá con el equipo al volver la conexión">⏳ al volver</span>}
-          {d.sinConexion && !d.pendiente && <span className={`px-1 rounded ${propio ? 'bg-blue-500' : 'bg-gray-100 text-gray-600'}`} title="Escrito sin conexión">📴 sin conexión</span>}
-          {!esIA && d.paraIA && <span className={`px-1 rounded ${propio ? 'bg-blue-500' : 'bg-violet-100 text-violet-700'}`}>para la IA</span>}
-          {!esIA && d.imagen && <span title={d.imagen.nombre}>📷</span>}
-          {!esIA && d.deAudio && <span title="Transcrito de un audio">🎙️</span>}
-          {!esIA && d.ajusta && <span className={propio ? 'text-blue-100' : 'text-violet-700'}>ajuste</span>}
+          {esIA && d.proveedor && !deIALocal && <span className="studio-chat-tag">{d.proveedor}</span>}
+          {d.pendiente && <span className="studio-chat-tag is-warm" title="Se compartirá con el equipo al volver la conexión"><Clock3 size={10} aria-hidden="true" /> al volver</span>}
+          {d.sinConexion && !d.pendiente && <span className="studio-chat-tag" title="Escrito sin conexión"><WifiOff size={10} aria-hidden="true" /> sin conexión</span>}
+          {!esIA && d.paraIA && <span className="studio-chat-tag">para la IA</span>}
+          {!esIA && d.imagen && <span title={d.imagen.nombre}><ImageIcon size={11} aria-label="Con imagen" /></span>}
+          {!esIA && d.deAudio && <span title="Transcrito de un audio"><Mic size={11} aria-label="Transcrito de un audio" /></span>}
+          {!esIA && d.ajusta && <span className="studio-chat-tag">ajuste</span>}
         </div>
         <Texto texto={m.texto} />
         {esIA && d.observaciones?.length > 0 && (
-          <ul className="mt-2 space-y-1">
+          <ul className="studio-chat-notes">
             {d.observaciones.map((o, i) => (
               <li key={i}>
                 <button
                   onClick={() => o.nodoId && onEnfocarClase(o.nodoId)}
-                  className={`w-full text-left text-xs border rounded px-2 py-1 ${COLOR_GRAVEDAD[o.gravedad] || COLOR_GRAVEDAD.aviso} ${o.nodoId ? 'hover:brightness-95' : 'cursor-default'}`}
+                  className={`studio-chat-observation is-${['error', 'aviso', 'sugerencia'].includes(o.gravedad) ? o.gravedad : 'aviso'} ${o.nodoId ? '' : 'is-static'}`}
                   title={o.nodoId ? 'Ver la clase en la pizarra' : undefined}
                 >
                   <strong>{o.clase || 'General'}</strong>: {o.texto}
                 </button>
               </li>
             ))}
-            <li><button onClick={onQuitarMarcas} className="text-[11px] text-gray-500 underline">Quitar las marcas de la pizarra</button></li>
+            <li><button onClick={onQuitarMarcas} className="studio-chat-link">Quitar las marcas de la pizarra</button></li>
           </ul>
         )}
         {esIA && d.ideas?.length > 0 && (
-          <ul className="mt-2 space-y-1">
+          <ul className="studio-chat-notes">
             {d.ideas.map((idea, i) => (
-              <li key={i} className="text-xs bg-sky-50 border border-sky-200 rounded px-2 py-1">
-                💡 <strong>{idea.titulo}</strong> {idea.texto}
-                <button onClick={() => onAplicarIdea(idea)} className="ml-1 text-violet-700 underline" title="La IA arma una propuesta con esta idea">Aplicar idea</button>
+              <li key={i} className="studio-chat-idea">
+                <Lightbulb size={12} aria-hidden="true" /> <span><strong>{idea.titulo}</strong> {idea.texto}{' '}
+                <button onClick={() => onAplicarIdea(idea)} className="studio-chat-link" title="La IA arma una propuesta con esta idea">Aplicar idea</button></span>
               </li>
             ))}
-            <li className="text-[11px] text-gray-500">Quedaron como notas celestes en la pizarra.</li>
+            <li className="studio-chat-hint">Quedaron como notas verdes en la pizarra.</li>
           </ul>
         )}
         {esIA && d.propuesta && <TarjetaPropuesta propuesta={propuesta} onDecidir={onDecidir} onAjustar={onAjustar} />}
@@ -148,64 +153,49 @@ const SUGERENCIAS = [
   ['Ideas', 'Dame ideas para mejorar este diseño'],
 ];
 
+// Las sugerencias de pedidos ocupan espacio y se pueden esconder; la elección queda guardada en este navegador
+const SUGERENCIAS_OCULTAS = 'chat.sugerenciasOcultas';
+const sugerenciasOcultas = () => {
+  try { return localStorage.getItem(SUGERENCIAS_OCULTAS) === '1'; } catch { return false; }
+};
+
 const Historial = ({ cambios }) => {
   const [autor, setAutor] = useState('');
   const autores = useMemo(() => [...new Set(cambios.map((c) => (c.esIA ? 'IA' : c.autorNombre)).filter(Boolean))], [cambios]);
   const lista = [...cambios].reverse().filter((c) => !autor || (autor === 'IA' ? c.esIA : c.autorNombre === autor && !c.esIA));
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-2">
-      <select value={autor} onChange={(e) => setAutor(e.target.value)} className="w-full text-xs border rounded px-2 py-1 bg-white">
+    <div className="studio-chat-history">
+      <select value={autor} onChange={(e) => setAutor(e.target.value)} className="select-modern" aria-label="Filtrar por integrante">
         <option value="">Todos los integrantes</option>
-        {autores.map((a) => <option key={a} value={a}>{a === 'IA' ? '🤖 IA' : a}</option>)}
+        {autores.map((a) => <option key={a} value={a}>{a}</option>)}
       </select>
-      {!lista.length && <p className="text-xs text-gray-500 text-center mt-6">Todavía no hay cambios registrados.</p>}
+      {!lista.length && <p className="studio-chat-hint">Todavía no hay cambios registrados.</p>}
       {lista.map((c) => (
-        <div key={c.id} className="text-xs border-l-2 pl-2 py-0.5" style={{ borderColor: c.esIA ? '#8b5cf6' : '#3b82f6' }}>
-          <div className="text-gray-500">{diaYHora(c.creadoEn)}</div>
-          <div>
-            <strong>{c.esIA ? (c.autorNombre === 'IA local' ? '💻 IA local' : '🤖 IA') : c.autorNombre}</strong>
-            {c.esIA && <span className="text-gray-500"> (pedido por {c.pedidoPor}{c.aprobadoPor ? `, aprobado por ${c.aprobadoPor}` : ''})</span>}
+        <div key={c.id} className={`studio-chat-change ${c.esIA ? 'is-ia' : ''}`}>
+          <span>{diaYHora(c.creadoEn)}</span>
+          <p>
+            <strong>{c.esIA ? (c.autorNombre === 'IA local' ? 'IA local' : 'IA') : c.autorNombre}</strong>
+            {c.esIA && <em> (pedido por {c.pedidoPor}{c.aprobadoPor ? `, aprobado por ${c.aprobadoPor}` : ''})</em>}
             {' '}{c.resumen}
-          </div>
+          </p>
         </div>
       ))}
     </div>
   );
 };
 
-/** Dictado con el reconocimiento de voz del navegador (Chrome/Edge). */
-const useDictado = (alTexto) => {
-  const [escuchando, setEscuchando] = useState(false);
-  const reconocedorRef = useRef(null);
-  const disponible = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-  const alternar = () => {
-    if (!disponible) {
-      Swal.fire({ icon: 'info', title: 'Dictado no disponible', text: 'Este navegador no permite dictar. Usa Chrome o Edge, o el botón de voz de la burbuja de IA.' });
-      return;
-    }
-    if (escuchando) { reconocedorRef.current?.stop(); return; }
-    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const rec = new R();
-    rec.lang = 'es-ES';
-    rec.interimResults = false;
-    rec.onresult = (e) => alTexto(Array.from(e.results).map((r) => r[0].transcript).join(' '));
-    rec.onend = () => setEscuchando(false);
-    rec.onerror = () => setEscuchando(false);
-    reconocedorRef.current = rec;
-    setEscuchando(true);
-    rec.start();
-  };
-  return { escuchando, alternar };
-};
-
-/** Grabar audio con el micrófono (se transcribe en el servidor con la IA). */
+/**
+ * Grabar audio con el micrófono: con conexión lo transcribe la IA del servidor y sin conexión
+ * Whisper en este equipo. Es el único micrófono del chat: el dictado del navegador
+ * (SpeechRecognition) depende de un servicio en línea y en muchos navegadores no hacía nada.
+ */
 const useGrabadora = (alTerminar) => {
   const [grabando, setGrabando] = useState(false);
   const grabadoraRef = useRef(null);
   const alternar = async () => {
     if (grabando) { grabadoraRef.current?.stop(); return; }
     if (!navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === 'undefined') {
-      Swal.fire({ icon: 'info', title: 'Grabación no disponible', text: 'Este navegador no permite grabar audio. Sube un archivo de audio o usa el dictado 🎤.' });
+      Swal.fire({ icon: 'info', title: 'Grabación no disponible', text: 'Este navegador no permite grabar audio. Sube un archivo de audio con el botón Adjuntar.' });
       return;
     }
     try {
@@ -231,21 +221,23 @@ const useGrabadora = (alTerminar) => {
 
 /** Pestañas del panel: los dos chats de la sala y el historial de cambios. */
 const PESTANAS = [
-  ['equipo', '👥 Equipo'],
-  ['ia', '🤖 IA del equipo'],
-  ['historial', '🕑 Quién hizo qué'],
+  ['equipo', 'Equipo', Users],
+  ['ia', 'IA del equipo', Sparkles],
+  ['historial', 'Quién hizo qué', History],
 ];
 
 /**
+ * @param {boolean} abierto  el panel del chat se ve (lo visto queda leído)
  * @param {boolean} enLinea  hay conexión con el servidor (si no, trabaja la IA local)
  * @param {{pedir, leerImagen, transcribir}} iaLocal  la IA local de este equipo (hooks/useIALocal)
  */
-export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, onQuitarMarcas, abierto, setAbierto, enLinea = true, iaLocal = null }) {
+export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, onQuitarMarcas, abierto, setAbierto, enLinea = true, iaLocal = null, pedidoExterno = null }) {
   const {
     mensajes, propuestas, estadoIA, cambios, bienvenida, sinLeer, hayAnteriores,
     enviar, enviarAdjunto, cargarAnteriores, decidir, cerrarBienvenida, marcarLeidos, agregarSinConexion, pendientes = 0,
   } = colaboracion;
-  // Panel de la IA local (modelos, Ollama) y la IA local trabajando en un pedido
+  // Panel de la IA local (modelos, Ollama) y la IA local trabajando en un pedido. El panel puede
+  // abrirse por un modelo que faltó: 'voz' | 'texto' | 'vista' (lo destaca arriba con la sugerencia)
   const [panelLocal, setPanelLocal] = useState(false);
   const [trabajandoLocal, setTrabajandoLocal] = useState(false);
   const sinConexion = !enLinea;
@@ -255,22 +247,37 @@ export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, on
   // Propuesta que se está ajustando y archivo adjunto (foto o audio) del próximo mensaje
   const [ajustando, setAjustando] = useState(null);
   const [adjunto, setAdjunto] = useState(null);
+  const [sinSugerencias, setSinSugerencias] = useState(sugerenciasOcultas);
+  const ocultarSugerencias = (ocultar) => {
+    setSinSugerencias(ocultar);
+    try {
+      if (ocultar) localStorage.setItem(SUGERENCIAS_OCULTAS, '1');
+      else localStorage.removeItem(SUGERENCIAS_OCULTAS);
+    } catch { /* sin almacenamiento: vale para esta sesión */ }
+  };
   const archivoRef = useRef(null);
   const grabadora = useGrabadora((archivo) => setAdjunto({ tipo: 'audio', archivo }));
   const finRef = useRef(null);
   const entradaRef = useRef(null);
-  const dictado = useDictado((t) => setTexto((prev) => `${prev ? `${prev} ` : ''}${t}`));
   const propuestaPorId = useMemo(() => new Map(propuestas.map((p) => [p.id, p])), [propuestas]);
   const enChat = pestana === 'equipo' || pestana === 'ia';
   const deIA = pestana === 'ia';
   const visibles = useMemo(() => (enChat ? mensajes.filter((m) => canalDe(m) === pestana) : []), [mensajes, pestana, enChat]);
-  const totalSinLeer = (sinLeer.equipo || 0) + (sinLeer.ia || 0);
 
   // Lo que se ve queda leído; lo del otro chat sigue contando en su pestaña
   useEffect(() => { if (abierto && enChat) marcarLeidos(pestana); }, [abierto, pestana, visibles.length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (abierto && enChat) finRef.current?.scrollIntoView({ block: 'end' }); }, [abierto, pestana, visibles.length, estadoIA.ocupada]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Si alguien escribe o la IA responde mientras está cerrado, el contador avisa
+  // El resumen de bienvenida abre el panel del chat
   useEffect(() => { if (bienvenida) setAbierto(true); }, [bienvenida]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pedido desde fuera del chat (por ejemplo "Verificar Diagrama" sin conexión): va al chat de la IA
+  const ultimoPedidoRef = useRef(null);
+  useEffect(() => {
+    if (!pedidoExterno || ultimoPedidoRef.current === pedidoExterno.n) return;
+    ultimoPedidoRef.current = pedidoExterno.n;
+    setPestana(pedidoExterno.pestana || 'ia');
+    if (sinConexion && pedidoExterno.texto) mandarSinConexion(true, pedidoExterno.texto);
+  }, [pedidoExterno]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cambiarPestana = (p) => {
     setPestana(p);
@@ -291,8 +298,7 @@ export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, on
       if (adjunto?.tipo === 'audio') {
         const transcripcion = iaLocal ? await iaLocal.transcribir(adjunto.archivo) : null;
         if (transcripcion === null) {
-          Swal.fire({ icon: 'info', title: 'Falta el modelo de voz', text: 'Para usar audio sin conexión, descarga el modelo de voz en 💻 IA local (una sola vez, con internet).' });
-          setPanelLocal(true);
+          setPanelLocal('voz');
           return;
         }
         if (!transcripcion.trim()) {
@@ -316,9 +322,12 @@ export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, on
       if (!iaLocal) return;
       setTrabajandoLocal(true);
       try {
-        const r = imagen ? await iaLocal.leerImagen(imagen, pedido) : await iaLocal.pedir(pedido);
+        // "Revisa el diagrama", "¿qué corregir?": revisión sin internet (reglas + Ollama), no cambia nada
+        const r = imagen ? await iaLocal.leerImagen(imagen, pedido)
+          : pideRevision(pedido) && iaLocal.revisar ? await iaLocal.revisar()
+            : await iaLocal.pedir(pedido);
         agregarSinConexion({ canal: 'ia', tipo: 'ia', texto: r.texto, datos: r.datos });
-        if (r.abrirPanel) setPanelLocal(true);
+        if (r.abrirPanel) setPanelLocal(r.falta || true);
       } catch (error) {
         agregarSinConexion({ canal: 'ia', tipo: 'ia', texto: `La IA local no pudo responder: ${error?.message || 'error desconocido'}.`, datos: { motor: 'error', cambios: 0 } });
       } finally {
@@ -371,97 +380,87 @@ export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, on
     setAdjunto({ tipo: archivo.type.startsWith('audio/') ? 'audio' : 'imagen', archivo });
   };
 
-  if (!abierto) {
-    return (
-      <button
-        onClick={() => setAbierto(true)}
-        className="fixed right-4 top-36 z-30 flex items-center gap-2 rounded-full bg-violet-600 px-4 py-2 text-sm text-white shadow-lg hover:bg-violet-700"
-        title="Chat del equipo y chat con la IA del equipo"
-        data-tour="chat-sala"
-      >
-        💬 Equipo + {sinConexion ? '💻 IA local' : '🤖 IA'}
-        {sinConexion && <span title="Sin conexión con el servidor">📴</span>}
-        {(estadoIA.ocupada || trabajandoLocal) && <span className="animate-pulse">…</span>}
-        {totalSinLeer > 0 && <span className="rounded-full bg-white px-1.5 text-xs font-bold text-violet-700">{totalSinLeer}</span>}
-      </button>
-    );
-  }
-
   return (
-    <div className="fixed right-4 top-36 bottom-24 z-30 flex w-[min(92vw,24rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-gray-50 shadow-2xl" data-tour="chat-sala">
-      <div className="flex items-center justify-between gap-1 bg-violet-600 px-2 py-2 text-white">
-        <div className="flex flex-wrap gap-1 text-xs" role="tablist">
-          {PESTANAS.map(([id, etiqueta]) => (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={pestana === id}
-              onClick={() => cambiarPestana(id)}
-              className={`flex items-center gap-1 rounded px-2 py-0.5 ${pestana === id ? 'bg-white/25' : 'hover:bg-white/10'}`}
-            >
-              {etiqueta}
-              {id === 'ia' && estadoIA.ocupada && <span className="animate-pulse">…</span>}
-              {sinLeer[id] > 0 && pestana !== id && <span className="rounded-full bg-white px-1.5 text-[10px] font-bold text-violet-700">{sinLeer[id]}</span>}
-            </button>
-          ))}
+    <div className="studio-chat" data-tour="chat-sala">
+      <div className="studio-ai-heading">
+        <div>
+          <span className="studio-ai-mark"><MessagesSquare size={18} aria-hidden="true" /></span>
+          <div>
+            <div className="studio-ai-title">Tu equipo y la IA</div>
+            <div className="studio-ai-subtitle">{sinConexion ? 'Sin conexión: responde la IA local.' : 'Todos ven lo que se pide y se propone.'}</div>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="studio-ai-heading-actions">
           {/* Con conexión solo se PREPARA (descargas, Ollama): la IA local responde sin conexión */}
           <button
             onClick={() => setPanelLocal((v) => !v)}
-            className={`rounded px-2 py-0.5 text-xs ${panelLocal ? 'bg-white/30' : 'hover:bg-white/10'}`}
+            className={`studio-ai-local ${panelLocal ? 'is-active' : ''}`}
+            aria-expanded={!!panelLocal}
             title={sinConexion ? 'Modelos de la IA local de este equipo' : 'Preparar la IA local para trabajar sin internet (Ollama y modelos)'}
-          >{sinConexion ? '💻 IA local' : '💻'}</button>
-          <button onClick={() => setAbierto(false)} className="rounded px-2 hover:bg-white/10" aria-label="Cerrar chat">✕</button>
+          ><Laptop size={14} aria-hidden="true" /> {sinConexion ? 'IA local' : 'Sin internet'}</button>
         </div>
       </div>
+
+      <div className="studio-chat-tabs" role="tablist" aria-label="Chats de la sala">
+        {PESTANAS.map(([id, etiqueta, Icono]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={pestana === id}
+            onClick={() => cambiarPestana(id)}
+          >
+            <Icono size={15} aria-hidden="true" />
+            <span>{etiqueta}</span>
+            {id === 'ia' && (estadoIA.ocupada || trabajandoLocal) && <i className="studio-chat-pulse" title="La IA está trabajando" />}
+            {sinLeer[id] > 0 && pestana !== id && <b className="studio-chat-badge">{sinLeer[id]}</b>}
+          </button>
+        ))}
+      </div>
+
       {sinConexion && (
-        <div className="border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-900">
-          📴 Sin conexión con el servidor. La IA local trabaja en este equipo y sus cambios se aplican enseguida.
-          Lo que escribas y lo que haga se compartirá con el equipo al volver{pendientes ? ` (${pendientes} pendiente${pendientes === 1 ? '' : 's'})` : ''}.
+        <div className="studio-chat-banner is-warm">
+          <WifiOff size={13} aria-hidden="true" />
+          <span>Sin conexión con el servidor. La IA local trabaja en este equipo y sus cambios se aplican enseguida.
+          Lo que escribas y lo que haga se compartirá con el equipo al volver{pendientes ? ` (${pendientes} pendiente${pendientes === 1 ? '' : 's'})` : ''}.</span>
         </div>
       )}
       {!sinConexion && pendientes > 0 && (
-        <div className="border-b border-sky-200 bg-sky-50 px-3 py-1 text-[11px] text-sky-900">Compartiendo con el equipo lo escrito sin conexión…</div>
+        <div className="studio-chat-banner">Compartiendo con el equipo lo escrito sin conexión…</div>
       )}
 
       {panelLocal ? (
-        <div className="flex-1 overflow-y-auto bg-white">
-          <PanelIALocal onCerrar={() => setPanelLocal(false)} onCambio={() => {}} />
+        <div className="studio-ai-local-panel">
+          <PanelIALocal onCerrar={() => setPanelLocal(false)} onCambio={() => {}} falta={typeof panelLocal === 'string' ? panelLocal : null} />
         </div>
       ) : pestana === 'historial' ? <Historial cambios={cambios} /> : (
         <>
           {bienvenida && (
-            <div className="m-2 rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
-              <div className="flex justify-between gap-2">
-                <Texto texto={bienvenida.texto} />
-                <button onClick={cerrarBienvenida} className="self-start text-sky-700" aria-label="Cerrar resumen">✕</button>
-              </div>
+            <div className="studio-chat-welcome">
+              <Texto texto={bienvenida.texto} />
+              <button onClick={cerrarBienvenida} className="icon-button" aria-label="Cerrar resumen"><X size={14} /></button>
             </div>
           )}
-          <div className="flex-1 space-y-2 overflow-y-auto p-3">
+          <div className="studio-chat-messages">
             {hayAnteriores[pestana] && (
-              <div className="text-center">
-                <button onClick={() => cargarAnteriores(pestana)} className="text-xs text-violet-700 underline">Cargar mensajes anteriores</button>
-              </div>
+              <button onClick={() => cargarAnteriores(pestana)} className="studio-chat-link studio-chat-older">Cargar mensajes anteriores</button>
             )}
             {!visibles.length && (deIA && sinConexion ? (
-              <div className="mt-6 text-center text-xs text-gray-500">
-                <p className="text-2xl">💻</p>
-                <p className="mt-1">Sin conexión trabaja la IA local de este equipo: entiende órdenes como "agrega la clase Producto con nombre y precio".</p>
-                <p className="mt-1">Con un modelo descargado (💻 IA local) entiende pedidos libres y lee fotos con Ollama.</p>
+              <div className="studio-chat-empty">
+                <span><Laptop size={20} aria-hidden="true" /></span>
+                <p>Sin conexión trabaja la IA local de este equipo: entiende órdenes como "agrega la clase Producto con nombre y precio".</p>
+                <p>Con un modelo descargado (IA local) entiende pedidos libres y lee fotos con Ollama.</p>
               </div>
             ) : deIA ? (
-              <div className="mt-6 text-center text-xs text-gray-500">
-                <p className="text-2xl">🤖</p>
-                <p className="mt-1">La IA es un integrante más del equipo: todos ven lo que le piden y lo que responde.</p>
-                <p className="mt-1">Sus cambios llegan como propuesta que el equipo acepta o rechaza.</p>
+              <div className="studio-chat-empty">
+                <span><Sparkles size={20} aria-hidden="true" /></span>
+                <p>La IA es un integrante más del equipo: todos ven lo que le piden y lo que responde.</p>
+                <p>Sus cambios llegan como propuesta que el equipo acepta o rechaza.</p>
               </div>
             ) : (
-              <div className="mt-6 text-center text-xs text-gray-500">
-                <p className="text-2xl">👥</p>
-                <p className="mt-1">Chat entre los integrantes de la sala. La IA no interviene aquí.</p>
-                <p className="mt-1">Para pedirle algo, usa la pestaña <strong>🤖 IA del equipo</strong> o escribe <strong>@IA</strong>.</p>
+              <div className="studio-chat-empty">
+                <span><Users size={20} aria-hidden="true" /></span>
+                <p>Chat entre los integrantes de la sala. La IA no interviene aquí.</p>
+                <p>Para pedirle algo, usa la pestaña <strong>IA del equipo</strong> o escribe <strong>@IA</strong>.</p>
               </div>
             ))}
             {visibles.map((m) => (
@@ -479,33 +478,34 @@ export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, on
               />
             ))}
             {deIA && trabajandoLocal && (
-              <div className="text-xs text-violet-700 animate-pulse">💻 La IA local está trabajando en este equipo…</div>
+              <div className="studio-chat-typing"><i className="studio-chat-pulse" /> La IA local está trabajando en este equipo…</div>
             )}
             {deIA && !sinConexion && estadoIA.ocupada && (
-              <div className="text-xs text-violet-700 animate-pulse">
-                🤖 La IA está atendiendo a {estadoIA.atendiendoA}…{estadoIA.enCola > 0 ? ` (${estadoIA.enCola} en cola)` : ''}
+              <div className="studio-chat-typing">
+                <i className="studio-chat-pulse" /> La IA está atendiendo a {estadoIA.atendiendoA}…{estadoIA.enCola > 0 ? ` (${estadoIA.enCola} en cola)` : ''}
               </div>
             )}
             <div ref={finRef} />
           </div>
-          <div className="border-t bg-white p-2">
-            {deIA && (
-              <div className="mb-1.5 flex flex-wrap gap-1">
-                {(sinConexion ? SUGERENCIAS_SIN_CONEXION.map((s) => [s, s]) : SUGERENCIAS).map(([etiqueta, pedido]) => (
-                  <button key={etiqueta} onClick={() => setTexto(pedido)} className="rounded-full border border-violet-200 px-2 py-0.5 text-[11px] text-violet-800 hover:bg-violet-50">{etiqueta}</button>
+          <div className="studio-chat-composer">
+            {deIA && !sinSugerencias && (
+              <div className="studio-chat-suggestions">
+                {(sinConexion ? [SUGERENCIAS[0], ...SUGERENCIAS_SIN_CONEXION.map((s) => [s, s])] : SUGERENCIAS).map(([etiqueta, pedido]) => (
+                  <button key={etiqueta} onClick={() => setTexto(pedido)} className="studio-chat-chip">{etiqueta}</button>
                 ))}
+                <button onClick={() => ocultarSugerencias(true)} className="studio-chat-link studio-chat-hide" title="Esconder las sugerencias para dejar más espacio al chat (vuelven con el botón de la bombilla)"><ChevronDown size={12} aria-hidden="true" /> Esconder</button>
               </div>
             )}
             {(ajustando || adjunto) && (
-              <div className="mb-1.5 flex flex-wrap gap-1 text-[11px]">
+              <div className="studio-chat-suggestions">
                 {ajustando && (
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-violet-800">
-                    Ajustando la propuesta: escribe qué cambiar <button onClick={() => setAjustando(null)} aria-label="Cancelar ajuste">✕</button>
+                  <span className="studio-chat-chip is-static">
+                    Ajustando la propuesta: escribe qué cambiar <button onClick={() => setAjustando(null)} aria-label="Cancelar ajuste"><X size={11} /></button>
                   </span>
                 )}
                 {adjunto && (
-                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-900">
-                    {adjunto.tipo === 'imagen' ? '📷' : '🎙️'} {adjunto.archivo.name} <button onClick={() => setAdjunto(null)} aria-label="Quitar adjunto">✕</button>
+                  <span className="studio-chat-chip is-static">
+                    {adjunto.tipo === 'imagen' ? <ImageIcon size={12} aria-hidden="true" /> : <Mic size={12} aria-hidden="true" />} {adjunto.archivo.name} <button onClick={() => setAdjunto(null)} aria-label="Quitar adjunto"><X size={11} /></button>
                   </span>
                 )}
               </div>
@@ -519,20 +519,22 @@ export default function ChatSala({ colaboracion, currentUser, onEnfocarClase, on
               }}
               rows={2}
               maxLength={4000}
+              aria-label={deIA ? 'Pedido para la IA del equipo' : 'Mensaje para el equipo'}
               placeholder={ajustando ? 'Qué cambiar de la propuesta…'
                 : deIA ? (sinConexion ? 'Pídele algo a la IA local (se compartirá al volver)…' : 'Pídele algo a la IA (todo el equipo lo ve)…')
                   : (sinConexion ? 'Escribe al equipo (se enviará al volver)…' : 'Escribe al equipo…')}
-              className="w-full resize-none rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-violet-500 focus:outline-none"
             />
-            <div className="mt-1.5 flex gap-1.5">
-              <input ref={archivoRef} type="file" accept={deIA ? 'image/*,audio/*' : 'audio/*'} className="hidden" onChange={elegirArchivo} />
-              <button onClick={() => archivoRef.current?.click()} className="rounded-lg border border-gray-300 px-2 text-sm hover:bg-gray-50" title={deIA ? 'Adjuntar una foto (pizarra, captura) o un audio' : 'Adjuntar un audio (se transcribe)'}>📎</button>
-              {!sinConexion && <button onClick={dictado.alternar} className={`rounded-lg border px-2 text-sm ${dictado.escuchando ? 'border-red-400 bg-red-50 text-red-700 animate-pulse' : 'border-gray-300 hover:bg-gray-50'}`} title="Dictar con la voz (se escribe en el cuadro)">🎤</button>}
-              <button onClick={grabadora.alternar} className={`rounded-lg border px-2 text-sm ${grabadora.grabando ? 'border-red-400 bg-red-50 text-red-700 animate-pulse' : 'border-gray-300 hover:bg-gray-50'}`} title={grabadora.grabando ? 'Terminar la grabación' : 'Grabar un audio (se transcribe)'}>{grabadora.grabando ? '⏹' : '🎙️'}</button>
+            <div className="studio-chat-actions">
+              <input ref={archivoRef} type="file" accept={deIA ? 'image/*,audio/*' : 'audio/*'} hidden onChange={elegirArchivo} />
+              <button onClick={() => archivoRef.current?.click()} className="studio-chat-tool" aria-label="Adjuntar" title={deIA ? 'Adjuntar una foto (pizarra, captura) o un audio' : 'Adjuntar un audio (se transcribe)'}><Paperclip size={15} /></button>
+              {deIA && sinSugerencias && (
+                <button onClick={() => ocultarSugerencias(false)} className="studio-chat-tool" aria-label="Mostrar sugerencias" title="Mostrar las sugerencias de pedidos"><Lightbulb size={15} /></button>
+              )}
+              <button onClick={grabadora.alternar} className={`studio-chat-tool ${grabadora.grabando ? 'is-recording' : ''}`} aria-label={grabadora.grabando ? 'Terminar la grabación' : 'Grabar un audio'} title={grabadora.grabando ? 'Terminar la grabación' : 'Grabar un audio (se transcribe)'}>{grabadora.grabando ? <Square size={13} /> : <Mic size={15} />}</button>
               {deIA ? (
-                <button onClick={mandar} disabled={(!texto.trim() && !adjunto) || enviando || trabajandoLocal} className="flex-1 rounded-lg bg-violet-600 px-2 py-1.5 text-sm text-white hover:bg-violet-700 disabled:opacity-40">{sinConexion ? '💻 Pedir a la IA local' : '🤖 Pedir a la IA'}</button>
+                <button onClick={mandar} disabled={(!texto.trim() && !adjunto) || enviando || trabajandoLocal} className="studio-ai-send"><Sparkles size={14} aria-hidden="true" /> {sinConexion ? 'Pedir a la IA local' : 'Pedir a la IA'}</button>
               ) : (
-                <button onClick={mandar} disabled={(!texto.trim() && !adjunto) || enviando} className="flex-1 rounded-lg bg-gray-800 px-2 py-1.5 text-sm text-white hover:bg-gray-900 disabled:opacity-40">{sinConexion ? 'Enviar al volver' : 'Enviar al equipo'}</button>
+                <button onClick={mandar} disabled={(!texto.trim() && !adjunto) || enviando} className="studio-ai-send"><Send size={14} aria-hidden="true" /> {sinConexion ? 'Enviar al volver' : 'Enviar al equipo'}</button>
               )}
             </div>
           </div>

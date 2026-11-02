@@ -538,6 +538,76 @@ export const interpretar = (texto) => {
   return { operaciones, noEntendidas };
 };
 
+// ─────────────────────── Pedidos sobre todo el diagrama ───────────────────────
+
+const esNodoClase = (n) => n.type === 'classNode' || n.data?.className;
+const empiezaEnMinuscula = (s) => /^\p{Ll}/u.test(String(s || '').trim());
+const empiezaEnMayuscula = (s) => /^\p{Lu}/u.test(String(s || '').trim());
+
+/**
+ * Pedidos que se aplican a todas las clases a la vez: «que los nombres de las clases empiecen con
+ * mayúscula», «atributos en minúscula». Se resuelven aquí, sin modelo: un modelo local chico no los
+ * entiende y termina inventando clases. Devuelve las operaciones (vacías si ya estaba así) o null si
+ * el pedido no es de este tipo.
+ */
+export const interpretarSobreElDiagrama = (texto, nodes = []) => {
+  const t = normalizar(quitarTildes(texto));
+  const clasesEnMayuscula = /mayuscula|capitaliz|pascal ?case/.test(t) && /\bclases?\b|\btitulos?\b/.test(t);
+  const atributosEnMinuscula = /minuscula|camel ?case/.test(t) && /\batributos?\b/.test(t);
+  if (!clasesEnMayuscula && !atributosEnMinuscula) return null;
+  const operaciones = [];
+  for (const n of nodes.filter(esNodoClase)) {
+    const nombre = n.data.className || '';
+    // Solo las que empiezan en minúscula o tienen espacios: "paradas" -> "Paradas", "detalle venta" -> "DetalleVenta"
+    if (clasesEnMayuscula && (empiezaEnMinuscula(nombre) || /\s/.test(nombre.trim())) && nombreClase(nombre) !== nombre) {
+      operaciones.push({ op: 'renombrarClase', clase: { nombre, plural: false }, nuevo: nombre });
+    }
+    if (atributosEnMinuscula) {
+      for (const a of n.data.attributes || []) {
+        const miembro = parseAtributo(a).nombre;
+        if (empiezaEnMayuscula(miembro)) operaciones.push({ op: 'renombrarAtributo', clase: { nombre, plural: false }, miembro, nuevo: miembro });
+      }
+    }
+  }
+  return operaciones;
+};
+
+// Pedidos que sí piden clases nuevas ("crea…", "agrega…", "un diagrama de una tienda"). Sin "pon",
+// "quiero" ni "haz que", que también se usan para modificar ("quiero que las clases…")
+const PIDE_CREAR = /\b(?:crea|crear|creame|cree|genera|generar|genere|define|definir|agrega|agregar|agregame|anade|anadir|anademe|incluye|incluir|dibuja|dibujar|nuev[oa]s?|hazme)\b|\bhaz\s+una?\b|\b(?:diagrama|sistema|modelo)\s+(?:de|para)\s+(?!que\b|clases?\b)|\b(?:modela|modelar|disena|disenar|arma|armar)\b/;
+
+/** ¿El pedido pide crear clases o un diagrama nuevo? */
+export const pideCrear = (texto) => PIDE_CREAR.test(normalizar(quitarTildes(texto)));
+
+const PIDE_ELIMINAR = /\b(?:elimina|eliminar|eliminalo|borra|borrar|quita|quitar|quitale|saca|sacar|remueve|remover|suprime)\b/;
+const PIDE_TODAS = /\b(?:todas?|todos|cada)\b/;
+
+/**
+ * Quita lo que un modelo local inventa. Un modelo chico que no entiende copia el ejemplo de su
+ * prompt (Cliente, Pedido…) o cambia cosas que nadie pidió. Se descarta:
+ *   - borrar algo, si el pedido no dice borrar o quitar;
+ *   - si el pedido no pide crear: tocar clases que no están en el diagrama ni en el pedido, y, si el
+ *     pedido nombra clases concretas (y no "todas" o "cada"), tocar clases existentes que no nombra.
+ * @returns {{ operaciones: Array, descartadas: number }}
+ */
+export const descartarInventos = (operaciones, texto, nodes = []) => {
+  const t = normalizar(quitarTildes(texto));
+  const plano = t.replace(/[^a-z0-9]/g, '');
+  const existentes = new Set(nodes.filter(esNodoClase).map((n) => clave(n.data.className || '')));
+  const nombrada = (nombre) => plano.includes(clave(nombre));
+  const crea = PIDE_CREAR.test(t);
+  const soloLasNombradas = !crea && !PIDE_TODAS.test(t) && [...existentes].some((k) => plano.includes(k));
+  const permitida = (nombre) => {
+    if (crea) return true;
+    if (existentes.has(clave(nombre))) return !soloLasNombradas || nombrada(nombre);
+    return nombrada(nombre);
+  };
+  const quedan = operaciones.filter((op) => (crea || op.op !== 'plantilla')
+    && (!op.op.startsWith('eliminar') || PIDE_ELIMINAR.test(t))
+    && [op.clase, op.origen, op.destino, op.a, op.b].every((r) => !r || permitida(r.nombre)));
+  return { operaciones: quedan, descartadas: operaciones.length - quedan.length };
+};
+
 // ─────────────────────────── Aplicar al diagrama ───────────────────────────
 
 const idNuevo = (prefijo) => `${prefijo}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

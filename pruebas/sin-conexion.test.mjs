@@ -73,7 +73,9 @@ test('la respuesta de la IA local dice qué hizo y con qué; si falta el modelo 
   const sinModelo = respuestaDeIALocal({ cambios: 0, resumen: [], avisos: [], noEntendidas: ['hazme un sistema de ventas'], motor: 'interprete', modeloDisponible: false });
   assert.match(sinModelo.texto, /No entendí/);
   assert.equal(sinModelo.abrirPanel, true);
+  assert.equal(sinModelo.falta, 'texto', 'el panel destaca qué falta junto a lo sugerido');
   const imagen = respuestaDeImagenLocal({ disponible: false, motivo: 'Para leer imágenes sin conexión hace falta Ollama en este equipo.' });
   assert.equal(imagen.abrirPanel, true);
+  assert.equal(imagen.falta, 'vista');
   assert.match(imagen.texto, /Ollama/);
 });

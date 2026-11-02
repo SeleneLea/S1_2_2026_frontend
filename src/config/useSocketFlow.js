@@ -427,6 +427,8 @@ export const useSocketFlow = (boardId, currentUser = null, options = {}) => {
     setEdges,
     // Cambios de la IA local: quedan en el historial como de la IA (pedido por quien la usó)
     aplicarCambiosIA: (nodes, edges) => cambiarLocal({ nodes: nodes || [], edges: edges || [] }, { origen: 'ia-local' }),
+    // Clases y relaciones de una vez, como un cambio del usuario (p. ej. el código importado sin conexión)
+    aplicarDiagrama: (nodes, edges) => cambiarLocal({ nodes: nodes || [], edges: edges || [] }),
     updateActiveUsers,
     cleanupActiveUser,
     getDebugEvents: () => lastEventsRef.current,

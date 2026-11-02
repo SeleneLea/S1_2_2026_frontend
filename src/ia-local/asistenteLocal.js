@@ -7,9 +7,9 @@
  *   2. si no, el modelo de lenguaje local traduce el pedido a órdenes;
  *   3. si no hay modelo descargado, se aplica lo que el intérprete sí entendió.
  */
-import { interpretar, aplicarOperaciones } from './interpreteOrdenes.js';
-import { construirMensajes, construirMensajesImagen, limpiarRespuesta } from './promptOrdenes.js';
-import { modeloTextoActual, modeloVozActual, nivelActual, preferenciasIA } from './configuracionIA.js';
+import { interpretar, aplicarOperaciones, descartarInventos, interpretarSobreElDiagrama, pideCrear } from './interpreteOrdenes.js';
+import { construirMensajes, construirMensajesImagen, copiaUnEjemplo, limpiarRespuesta } from './promptOrdenes.js';
+import { alternativasDeTexto, alternativasDeVoz, nivelActual, preferenciasIA } from './configuracionIA.js';
 import { estadoOllama, generarConOllama, modeloOllamaPorDefecto, modeloVistaPorDefecto } from './ollama.js';
 import { generarTexto, modeloDescargado, transcribirAudio } from './motorIA.js';
 
@@ -38,6 +38,14 @@ export const iaNubeDisponible = async () => {
 
 export const olvidarEstadoNube = () => { comprobacion = { cuando: 0, disponible: false }; };
 
+/** El primer modelo de la lista que ya está descargado en este navegador, o null. */
+const primeroDescargado = async (configs) => {
+  for (const config of configs) {
+    if (await modeloDescargado(config)) return config;
+  }
+  return null;
+};
+
 /**
  * El modelo a veces describe la misma asociación dos veces, en sentido inverso
  * ("Habitacion 1 a muchos Reserva" y "Reserva 1 a 1 Habitacion"): se deja la primera.
@@ -54,17 +62,43 @@ const sinAsociacionesRepetidas = (operaciones) => {
 };
 
 /**
+ * Lo que el modelo escribió, ya como operaciones válidas para este diagrama. Sin lo que inventa
+ * (ver descartarInventos); `descartadas` dice cuántas se quitaron.
+ */
+const operacionesDelModelo = (respuesta, texto, nodes) => {
+  const ordenes = limpiarRespuesta(respuesta);
+  const traducido = interpretar(ordenes);
+  // Si repitió un ejemplo del prompt (y no se pidió crear nada), no se aplica ninguna de sus órdenes
+  if (!pideCrear(texto) && copiaUnEjemplo(ordenes)) {
+    return { ordenes, operaciones: [], descartadas: traducido.operaciones.length || 1, noEntendidas: [] };
+  }
+  const { operaciones, descartadas } = descartarInventos(sinAsociacionesRepetidas(traducido.operaciones), texto, nodes);
+  return { ordenes, operaciones, descartadas, noEntendidas: traducido.noEntendidas };
+};
+
+const avisoInventos = (n) => `Se descartaron ${n} cambio${n === 1 ? '' : 's'} del modelo que no correspondían al pedido.`;
+
+/**
  * @returns {{ nodes, edges, cambios, resumen, avisos, motor, noEntendidas, ordenes?, errorModelo?, modeloDisponible }}
  */
 export const resolverConIALocal = async ({ texto, nodes = [], edges = [], alProgresar }) => {
+  // Pedidos sobre todas las clases a la vez (p. ej. "que empiecen con mayúscula"): sin modelo
+  const sobreTodo = interpretarSobreElDiagrama(texto, nodes);
+  if (sobreTodo) {
+    if (!sobreTodo.length) return { nodes, edges, cambios: 0, resumen: [], avisos: ['Ya estaba así: no hubo nada que cambiar.'], motor: 'interprete', noEntendidas: [], modeloDisponible: true };
+    return { ...aplicarOperaciones(sobreTodo, { nodes, edges }), motor: 'interprete', noEntendidas: [], modeloDisponible: true };
+  }
+
   const directo = interpretar(texto);
   if (directo.operaciones.length && !directo.noEntendidas.length) {
     return { ...aplicarOperaciones(directo.operaciones, { nodes, edges }), motor: 'interprete', noEntendidas: [], modeloDisponible: true };
   }
 
   const nivel = await nivelActual();
-  const config = await modeloTextoActual();
+  // El elegido o, si ese no está, otro que ya se haya descargado: no se pide uno nuevo sin necesidad
+  const config = await primeroDescargado(await alternativasDeTexto());
   let errorModelo = null;
+  let conOllama = false;
 
   // 1) Ollama instalado en el equipo: modelos más grandes, ya descargados y con la gráfica del sistema
   const { motorTexto = 'auto', modeloOllama } = preferenciasIA();
@@ -74,20 +108,23 @@ export const resolverConIALocal = async ({ texto, nodes = [], edges = [], alProg
       ? modeloOllama
       : modeloOllamaPorDefecto(ollama.modelos);
     if (ollama.disponible && modelo) {
+      conOllama = true;
       try {
         const respuesta = await generarConOllama(construirMensajes(texto, nodes, edges), modelo);
-        const traducido = interpretar(limpiarRespuesta(respuesta));
-        if (traducido.operaciones.length) {
-          const operaciones = sinAsociacionesRepetidas(traducido.operaciones);
+        const { ordenes, operaciones, descartadas, noEntendidas } = operacionesDelModelo(respuesta, texto, nodes);
+        if (operaciones.length) {
+          const aplicado = aplicarOperaciones(operaciones, { nodes, edges });
           return {
-            ...aplicarOperaciones(operaciones, { nodes, edges }),
+            ...aplicado,
+            avisos: descartadas ? [...aplicado.avisos, avisoInventos(descartadas)] : aplicado.avisos,
             motor: 'ollama',
             modeloUsado: modelo,
-            ordenes: limpiarRespuesta(respuesta),
-            noEntendidas: traducido.noEntendidas,
+            ordenes,
+            noEntendidas,
             modeloDisponible: true,
           };
         }
+        if (descartadas) errorModelo = `${modelo} no entendió el pedido: lo que respondió no correspondía a tu diagrama y no se aplicó`;
       } catch (error) {
         errorModelo = error.message;
       }
@@ -95,15 +132,19 @@ export const resolverConIALocal = async ({ texto, nodes = [], edges = [], alProg
   }
 
   // 2) Modelo dentro del navegador
-  if (config && await modeloDescargado(config)) {
+  if (config) {
     try {
       const respuesta = await generarTexto(construirMensajes(texto, nodes, edges), config, alProgresar);
-      const ordenes = limpiarRespuesta(respuesta);
-      const traducido = interpretar(ordenes);
-      if (traducido.operaciones.length) {
-        const operaciones = sinAsociacionesRepetidas(traducido.operaciones);
-        return { ...aplicarOperaciones(operaciones, { nodes, edges }), motor: 'modelo', ordenes, noEntendidas: traducido.noEntendidas, modeloDisponible: true };
+      const { ordenes, operaciones, descartadas, noEntendidas } = operacionesDelModelo(respuesta, texto, nodes);
+      if (operaciones.length) {
+        const aplicado = aplicarOperaciones(operaciones, { nodes, edges });
+        return {
+          ...aplicado,
+          avisos: descartadas ? [...aplicado.avisos, avisoInventos(descartadas)] : aplicado.avisos,
+          motor: 'modelo', ordenes, noEntendidas, modeloDisponible: true,
+        };
       }
+      if (descartadas) errorModelo = 'el modelo del navegador no entendió el pedido: lo que respondió no correspondía a tu diagrama y no se aplicó';
     } catch (error) {
       errorModelo = error.message;
     }
@@ -117,7 +158,7 @@ export const resolverConIALocal = async ({ texto, nodes = [], edges = [], alProg
     motor: 'interprete',
     noEntendidas: directo.noEntendidas,
     errorModelo,
-    modeloDisponible: Boolean(config && await modeloDescargado(config)),
+    modeloDisponible: Boolean(config) || conOllama,
     nivel,
   };
 };
@@ -169,9 +210,9 @@ export const leerImagenConIALocal = async ({ imagen, texto = '', nodes = [], edg
   };
 };
 
-/** Transcribe con Whisper local; null si el modelo de voz aún no se descargó. */
+/** Transcribe con Whisper local (el elegido o cualquier otro ya descargado); null si no hay ninguno. */
 export const transcribirConIALocal = async (blob, alProgresar) => {
-  const config = await modeloVozActual();
-  if (!(await modeloDescargado(config))) return null;
+  const config = await primeroDescargado(await alternativasDeVoz());
+  if (!config) return null;
   return transcribirAudio(blob, config, alProgresar);
 };

@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { leerImagenConIALocal, resolverConIALocal, transcribirConIALocal } from '../ia-local/asistenteLocal.js';
-import { respuestaDeIALocal, respuestaDeImagenLocal } from '../utils/respuestaIALocal.js';
+import { respuestaDeIALocal, respuestaDeImagenLocal, respuestaDeRevisionLocal } from '../utils/respuestaIALocal.js';
+import { revisarConIALocal } from '../ia-local/revisionLocal.js';
 
 const comoBase64 = (archivo) => new Promise((resolve, reject) => {
   const lector = new FileReader();
@@ -34,10 +35,13 @@ export const useIALocal = ({ nodes, edges, aplicar }) => {
     return respuestaDeImagenLocal(r);
   }, []);
 
+  /** Revisión del diagrama sin internet: reglas fijas y, si hay Ollama, su revisión. No cambia nada. */
+  const revisar = useCallback(async () => respuestaDeRevisionLocal(await revisarConIALocal(diagramaRef.current)), []);
+
   /** Audio a texto con Whisper local; null si el modelo de voz todavía no se descargó. */
   const transcribir = useCallback((audio) => transcribirConIALocal(audio), []);
 
-  return { pedir, leerImagen, transcribir };
+  return { pedir, leerImagen, transcribir, revisar };
 };
 
 export default useIALocal;

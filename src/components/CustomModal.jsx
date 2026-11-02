@@ -2,7 +2,6 @@
 import React from 'react';
 import Modal from 'react-modal';
 import PropTypes from 'prop-types';
-import '../../src/index.css';
 
 Modal.setAppElement('#root');
 
@@ -22,7 +21,8 @@ const CustomModal = ({
 
   const customStyles = {
     overlay: {
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      backgroundColor: 'var(--color-overlay)',
+      backdropFilter: 'blur(5px)',
       zIndex: 1000,
       display: 'flex',
       alignItems: 'center',
@@ -38,7 +38,8 @@ const CustomModal = ({
       padding: 0,
       border: 'none',
       background: 'none',
-      overflow: 'visible'
+      overflow: 'visible',
+      width: 'min(100%, 480px)'
     }
   };
 
@@ -49,8 +50,8 @@ const CustomModal = ({
       style={customStyles}
       contentLabel={title}
     >
-      <div className={`${sizeClasses[size]} w-full bg-white rounded-lg shadow-xl`}>
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div className={`${sizeClasses[size]} modal-shell`}>
+        <div className="modal-heading">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-gray-800">{title}</h2>
             <button
@@ -74,7 +75,7 @@ const CustomModal = ({
             </button>
           </div>
         </div>
-        <div className="px-6 py-4">
+        <div className="modal-body">
           {children}
         </div>
       </div>

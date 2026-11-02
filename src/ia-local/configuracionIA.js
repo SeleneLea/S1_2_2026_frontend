@@ -176,6 +176,9 @@ export const nivelActual = async () => {
 // AMD Radeon Graphics/Vega) comparten memoria con el sistema y van mucho más lentas con 3B.
 const GRAFICA_DEDICADA = /nvidia|geforce|rtx|gtx|quadro|radeon rx|\barc\b|apple/i;
 
+/** ¿La gráfica que usa el navegador es dedicada? */
+export const graficaDedicada = (capacidades) => GRAFICA_DEDICADA.test(capacidades?.adaptador || '');
+
 /**
  * Modelo de lenguaje recomendado para este equipo. Se mira el tipo de gráfica y la memoria del
  * sistema; el "bloque máximo" de WebGPU no sirve para deducir la memoria de la gráfica, porque
@@ -184,7 +187,7 @@ const GRAFICA_DEDICADA = /nvidia|geforce|rtx|gtx|quadro|radeon rx|\barc\b|apple/
 export const textoRecomendado = (capacidades, nivel) => {
   if (nivel !== 'gpu') return null;
   const memoriaGB = capacidades?.memoriaGB ?? 8;
-  const dedicada = GRAFICA_DEDICADA.test(capacidades?.adaptador || '');
+  const dedicada = graficaDedicada(capacidades);
   if (memoriaGB < 4) return 'qwen-0.5b';
   if (dedicada && memoriaGB >= 8) return 'llama-3b';
   return 'llama-1b';
@@ -195,7 +198,7 @@ export const textoRecomendado = (capacidades, nivel) => {
  * apagada para el navegador, y entonces la IA local va mucho más lenta de lo que podría.
  */
 export const usaGraficaIntegrada = (capacidades) =>
-  Boolean(capacidades?.webgpu && capacidades?.adaptador && !GRAFICA_DEDICADA.test(capacidades.adaptador));
+  Boolean(capacidades?.webgpu && capacidades?.adaptador && !graficaDedicada(capacidades));
 
 /** Modelo de voz recomendado: el básico usa el más liviano. */
 export const vozRecomendada = (capacidades, nivel) => (nivel === 'basico' ? 'whisper-tiny' : 'whisper-base');
@@ -224,3 +227,26 @@ export const modeloTextoActual = async () => configuracionDeTexto(await opcionTe
 
 /** Configuración del modelo de voz en uso, lista para el motor. */
 export const modeloVozActual = async () => configuracionDeVoz(await opcionVozActual(), await nivelActual());
+
+/** El elegido primero y después el resto del catálogo, sin repetir. */
+const conElegidoPrimero = (catalogo, elegida) => [elegida, ...catalogo.filter((o) => o.clave !== elegida?.clave)].filter(Boolean);
+
+/**
+ * Modelos de voz que sirven en este equipo, del preferido al último recurso: el elegido, los demás
+ * en el mismo formato y, en la gráfica, también los del procesador (corren en cualquier equipo).
+ * Así un modelo ya descargado se usa aunque después haya cambiado la recomendación o el nivel.
+ */
+export const alternativasDeVoz = async () => {
+  const nivel = await nivelActual();
+  const opciones = conElegidoPrimero(CATALOGO_VOZ, await opcionVozActual());
+  return [
+    ...opciones.map((o) => configuracionDeVoz(o, nivel)),
+    ...(nivel === 'gpu' ? opciones.map((o) => configuracionDeVoz(o, 'cpu')) : []),
+  ];
+};
+
+/** Modelos de lenguaje que sirven en este equipo (solo con WebGPU), el elegido primero. */
+export const alternativasDeTexto = async () => {
+  const elegida = await opcionTextoActual();
+  return elegida ? conElegidoPrimero(CATALOGO_TEXTO, elegida).map(configuracionDeTexto) : [];
+};

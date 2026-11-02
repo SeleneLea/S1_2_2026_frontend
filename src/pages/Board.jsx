@@ -1,3 +1,4 @@
+import { Workflow, Plus, Upload, LayoutGrid } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 // Use backend endpoints instead of Firestore
@@ -6,6 +7,7 @@ import BoardList from "../components/board/BoardList";
 import BoardModals from "../components/board/BoardModals";
 import { prepararImportacionXmi } from "../utils/xmlImporter.js";
 import { prepararImportacionEAP } from "../utils/eapImporter.js";
+import { leerArchivosJava, modeloDesdeJava, diagramaDesdeModelo } from "../utils/importarCodigo.js";
 import Tour from "../components/tutorial/Tour.jsx";
 import BotonAyuda from "../components/tutorial/BotonAyuda.jsx";
 import { TOUR_TABLEROS, tourVisto, marcarTourVisto, marcarTarea } from "../components/tutorial/guiones.js";
@@ -458,13 +460,29 @@ const Board = () => {
       </div>
     );
   }
-  // Importar un diagrama: XMI (.xmi / .xml) o proyecto de Enterprise Architect (.eap)
+  // Importar un diagrama: XMI (.xmi / .xml), proyecto de Enterprise Architect (.eap) o el código
+  // de un backend (.zip del proyecto o archivos .java)
   const handleXmlUpload = async (e) => {
     const input = e.target;
-    const file = input.files?.[0];
+    const elegidos = [...(input.files || [])];
+    const file = elegidos[0];
     input.value = ''; // permite volver a elegir el mismo archivo
     if (!file) return;
     const nombreBase = file.name.replace(/\.[^.]+$/, '');
+    const deCodigo = elegidos.filter(f => /\.(zip|java)$/i.test(f.name));
+    if (deCodigo.length) {
+      try {
+        await importarBackend(deCodigo);
+      } catch (error) {
+        console.error("Error importando el código:", error);
+        Swal.fire({
+          icon: "error",
+          title: "No se pudo importar el código",
+          text: mensajeDeError(error, 'Revisa que sea el .zip de un proyecto Spring Boot o sus archivos .java.'),
+        });
+      }
+      return;
+    }
 
     try {
       let importacion;
@@ -523,10 +541,76 @@ const Board = () => {
     return isConfirmed ? value : null;
   };
 
-  // Crea el tablero con el diagrama importado usando la API del backend.
+  const escapar = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // Backend existente -> tablero nuevo con sus entidades y relaciones; cada clase guarda la ruta de
+  // su controlador (rutaApi), así la app Flutter que se genere llama a los endpoints de ese backend
+  const importarBackend = async (archivos) => {
+    Swal.fire({ title: 'Leyendo el código...', allowOutsideClick: false, showConfirmButton: false, willOpen: () => Swal.showLoading() });
+    const modelo = modeloDesdeJava(await leerArchivosJava(archivos));
+    Swal.close();
+    if (!modelo.clases.length) throw new Error('No se encontraron entidades JPA (@Entity) en el código.');
+    const { nodes, edges } = diagramaDesdeModelo(modelo);
+    const titulo = archivos.length === 1 ? archivos[0].name.replace(/\.[^.]+$/, '') : 'Backend importado';
+    const conRuta = modelo.clases.filter(c => modelo.rutas[c.nombre]).length;
+    const avisos = modelo.avisos.length
+      ? `<ul class="text-xs text-amber-700 mt-2 list-disc pl-5">${modelo.avisos.slice(0, 6).map(a => `<li>${escapar(a)}</li>`).join('')}</ul>`
+      : '';
+    const { isConfirmed, isDenied } = await Swal.fire({
+      icon: 'info',
+      title: 'Backend leído',
+      html: `<div class="text-left text-sm">` +
+        `<p><strong>${modelo.clases.length}</strong> entidades y <strong>${modelo.relaciones.length}</strong> relaciones de ${modelo.archivos} archivos .java.</p>` +
+        `<p class="mt-1">Rutas de la API encontradas para ${conRuta} de ${modelo.clases.length} entidades` +
+        `${conRuta < modelo.clases.length ? ' (las demás usan la ruta que arma la herramienta)' : ''}.</p>` +
+        `<p class="text-xs text-gray-500 mt-2">${escapar(modelo.clases.map(c => c.nombre).join(', '))}</p>${avisos}` +
+        `<p class="mt-2">Se crea el tablero <strong>${escapar(titulo)}</strong>. La app Flutter generada desde él usa las rutas de ese backend.</p></div>`,
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: 'Crear y generar la app Flutter',
+      denyButtonText: 'Solo crear el tablero',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!isConfirmed && !isDenied) return;
+    const id = await createBoardFromXml(titulo, nodes, edges, { silencioso: true });
+    if (!id) return;
+    if (isConfirmed) await generarFlutterDe(id);
+    const { isConfirmed: abrir } = await Swal.fire({
+      icon: 'success',
+      title: isConfirmed ? '¡Tablero creado y app descargada!' : '¡Tablero creado!',
+      html: `<div class="text-left"><p>Tablero <strong>${escapar(titulo)}</strong> con ${nodes.length} clases.</p>` +
+        (isConfirmed ? '<p class="text-sm text-gray-600 mt-2">En la app, apunta la URL de la API (lib/config/api_config.dart) al servidor de ese backend.</p>' : '') + '</div>',
+      showCancelButton: true,
+      confirmButtonText: 'Abrir el tablero',
+      cancelButtonText: 'Quedarme en la lista',
+    });
+    if (abrir) navigate(`/board/${id}`);
+  };
+
+  // Descarga la app Flutter del tablero (el servidor la arma desde el diagrama guardado)
+  const generarFlutterDe = async (id) => {
+    Swal.fire({ title: 'Generando la app Flutter...', allowOutsideClick: false, showConfirmButton: false, willOpen: () => Swal.showLoading() });
+    try {
+      const res = await fetch(`${import.meta.env.VITE_WS_URL || window.location.origin}/apis/crearPagina/exportarFlutter/${id}`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (!res.ok) throw errorDeRespuesta(res, await res.json().catch(() => ({})), 'No se pudo generar la app Flutter.');
+      const blob = await res.blob();
+      const nombre = (/filename=?"?([^";]+)"?/.exec(res.headers.get('content-disposition') || '') || [])[1] || `tablero-${id}-flutter.zip`;
+      const { saveAs } = await import('file-saver');
+      saveAs(blob, nombre);
+      Swal.close();
+    } catch (error) {
+      console.error("Error generando la app Flutter:", error);
+      await Swal.fire({ icon: 'warning', title: 'El tablero se creó, pero no la app', text: `${mensajeDeError(error, 'Intenta de nuevo en unos segundos.')} Puedes generarla desde el tablero con el botón Flutter.` });
+    }
+  };
+
+  // Crea el tablero con el diagrama importado usando la API del backend; devuelve su id.
   // (Antes esta función llamaba a addDoc/boardCollection de Firestore, que ya no
   // existen en el proyecto: la importación fallaba siempre con ReferenceError.)
-  const createBoardFromXml = async (title, nodes, edges) => {
+  const createBoardFromXml = async (title, nodes, edges, { silencioso = false } = {}) => {
     try {
       const res = await fetch(boardApiBase, {
         method: 'POST',
@@ -545,70 +629,36 @@ const Board = () => {
       }
 
       await getBoardList();
+      if (silencioso) return result.data?.id ?? null;
       Swal.fire({
         icon: "success",
         title: "¡Diagrama importado!",
-        html: `<div class="text-left"><p>Se creó el tablero <strong>${title}</strong></p>` +
+        html: `<div class="text-left"><p>Se creó el tablero <strong>${escapar(title)}</strong></p>` +
               `<p class="text-sm text-gray-600 mt-2">${nodes.length} clases y ${edges.filter(e => !e.data?.isAssociationConnection).length} relaciones.</p></div>`,
         confirmButtonText: 'Abrir la lista'
       });
+      return result.data?.id ?? null;
     } catch (error) {
       console.error("Error creando tablero desde XMI:", error);
-      Swal.fire({ icon: "error", title: "No se pudo crear el tablero", text: mensajeDeError(error, "Intenta de nuevo en unos segundos.") });
+      await Swal.fire({ icon: "error", title: "No se pudo crear el tablero", text: mensajeDeError(error, "Intenta de nuevo en unos segundos.") });
+      return null;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* Header con título y botones principales */}
-        <div className="header-container">
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            Mis Tableros
-          </h1>
-
-          <div className="flex items-center gap-3">
-            {/* Botón importar XML */}
-            <label
-              htmlFor="fileInput"
-              data-tour="importar-xml"
-              className="btn-success cursor-pointer"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-              Importar XMI / EAP
-            </label>
-            <input
-              type="file"
-              id="fileInput"
-              accept=".xmi,.xml,.eap"
-              onChange={handleXmlUpload}
-              className="hidden"
-            />
-
-            {/* Botón nuevo tablero */}
-            <button
-              onClick={() => setModalIsOpen(true)}
-              data-tour="nuevo-tablero"
-              className="btn-primary"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                  d="M12 4v16m8-8H4" />
-              </svg>
-              Nuevo Tablero
-            </button>
+    <main className="workspace page-width">
+      <div>
+        <div className="workspace-heading">
+          <div><span className="eyebrow"><span className="status-dot" /> MI ESPACIO DE TRABAJO</span><h1>Mis diagramas.</h1><p>Hola, {user?.name?.split(' ')[0] || 'de nuevo'}. Tus ideas tienen un lugar aquí.</p></div>
+          <div className="workspace-actions">
+            <button type="button" onClick={() => document.getElementById('fileInput').click()} data-tour="importar-xml" className="btn-success" title="XMI, proyecto .EAP o el código de un backend Spring Boot (.zip o archivos .java)"><Upload size={17} /> Importar XMI / EAP / código</button>
+            <input type="file" id="fileInput" accept=".xmi,.xml,.eap,.zip,.java" multiple onChange={handleXmlUpload} className="hidden" />
+            <button onClick={() => setModalIsOpen(true)} data-tour="nuevo-tablero" className="btn-primary"><Plus size={18} /> Nuevo tablero</button>
           </div>
         </div>
-
-        {/* Contenedor principal de la lista de tableros */}
-        <div className="card-container">
+        <div className="workspace-banner"><div><h2>Un nuevo proyecto empieza con una idea.</h2><p>Dale forma en un tablero, conecta sus piezas e invita a tu equipo a construir contigo.</p></div><span className="workspace-banner-symbol" aria-hidden="true"><Workflow size={42} strokeWidth={1.3} /></span></div>
+        <div className="board-section-heading"><h2><LayoutGrid size={17} /> Todos los tableros <span className="board-count">{boardList.length}</span></h2><span>Un espacio para cada proyecto</span></div>
+        <div>
           <BoardList
             boards={boardList}
             user={user}
@@ -649,7 +699,7 @@ const Board = () => {
         />
         <BotonAyuda onRelanzarTour={() => setTourAbierto(true)} />
       </div>
-    </div>
+    </main>
   );
 };
 

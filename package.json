@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node server.js",
-    "test": "node --test pruebas/sincronia.test.mjs pruebas/revision-recuperacion.test.mjs pruebas/auditoria.test.mjs pruebas/verificacion.test.mjs pruebas/canales.test.mjs pruebas/sin-conexion.test.mjs pruebas/ollama.test.mjs pruebas/clase-asociacion.test.mjs"
+    "test": "node --test pruebas/sincronia.test.mjs pruebas/revision-recuperacion.test.mjs pruebas/auditoria.test.mjs pruebas/verificacion.test.mjs pruebas/canales.test.mjs pruebas/sin-conexion.test.mjs pruebas/ollama.test.mjs pruebas/clase-asociacion.test.mjs pruebas/revision-local.test.mjs pruebas/importar-codigo.test.mjs pruebas/sugerencia-equipo.test.mjs pruebas/ia-local-pedidos.test.mjs"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.5",

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  comandoPermitirPagina, guionConfigurar, guionModelos, guionPermitirPagina, modeloSugeridoOllama, modelosConVista, modeloVistaSugerido,
+  comandoPermitirPagina, descargarGuion as descargar, guionConfigurar, guionModelos, guionPermitirPagina, modeloSugeridoOllama, modelosConVista, modeloVistaSugerido,
 } from '../ia-local/ollama.js';
 import { estadoDeLosPasos } from './estadoGuiaOllama.js';
 
@@ -13,17 +13,6 @@ import { estadoDeLosPasos } from './estadoGuiaOllama.js';
 
 const windows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
 const enEsteEquipo = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
-
-const descargar = (guion) => {
-  const url = URL.createObjectURL(new Blob([guion.contenido], { type: `${guion.tipo};charset=utf-8` }));
-  const enlace = document.createElement('a');
-  enlace.href = url;
-  enlace.download = guion.nombre;
-  document.body.appendChild(enlace);
-  enlace.click();
-  document.body.removeChild(enlace);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
-};
 
 const ICONO = { si: '✅', no: '❌', duda: '❔', espera: '⏳', no_hace_falta: '➖' };
 

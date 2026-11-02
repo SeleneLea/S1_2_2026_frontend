@@ -4,6 +4,7 @@ import PublicRoute from './routes/PublicRoute.jsx';
 import { StrictMode } from 'react';
 import '@xyflow/react/dist/style.css';
 import './index.css';
+import './studio.css';
 
 // Service worker: la app queda guardada y abre sin internet. Antes solo buscaba una versión nueva
 // al cargar la página, y una pestaña abierta antes de un despliegue seguía con la vieja. Ahora

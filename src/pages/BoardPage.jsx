@@ -1,15 +1,17 @@
 // BoardPage.jsx
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Workflow, ArrowLeft, ChevronRight, Plus, StickyNote, Undo2, Redo2, Sparkles, SlidersHorizontal, Download, Wrench, Braces, Code2, Database, FileCode2, ArrowUpRight, Check, Save, Layers, Maximize2, Minus, Sun, Moon, PanelRightClose, PanelRightOpen, Grid2X2, X, ShieldCheck, Users, LockKeyhole, UnlockKeyhole, CloudOff, MessagesSquare, Spline, FileUp, TriangleAlert } from 'lucide-react';
+import useTheme from '../hooks/useTheme';
 import {
   Background,
-  Controls,
+  useReactFlow,
+  useViewport,
   ReactFlow,
   ReactFlowProvider,
   addEdge,
   getSmoothStepPath,
-  Position,
-  useReactFlow
+  Position
 } from "@xyflow/react";
 import { useParams } from "react-router-dom";
 // db removed - switching to Socket.IO based flow for realtime sync
@@ -32,6 +34,7 @@ import BurbujaHerramientasDiagrama from '../components/BurbujaHerramientasDiagra
 import ChatSala from '../components/ChatSala';
 import useColaboracion from '../hooks/useColaboracion';
 import useIALocal from '../hooks/useIALocal';
+import { compararConDiagrama, leerArchivosJava, modeloDesdeJava } from '../utils/importarCodigo.js';
 import { esFantasma, superponerPropuesta } from '../utils/vistaPropuesta';
 import { deshacerSelectivo } from '../utils/deshacerSelectivo';
 import { borrarUsuarioLocal, guardarUsuarioLocal, leerUsuarioLocal } from '../offline/almacenTableros.js';
@@ -51,6 +54,21 @@ const BoardPage = () => {
   const [tourEditorAbierto, setTourEditorAbierto] = useState(false);
   const { id: boardId } = useParams();
   const [currentUser, setCurrentUser] = useState(null);
+  const [boardTitle, setBoardTitle] = useState('Mi diagrama');
+  const [studioPanel, setStudioPanel] = useState('design');
+  const [panelOpen, setPanelOpen] = useState(() => !window.matchMedia('(max-width: 900px)').matches);
+  const [showGrid, setShowGrid] = useState(true);
+  const [canvasLocked, setCanvasLocked] = useState(false);
+  const archivoCodigoRef = useRef(null);
+  const { isDark, toggleTheme } = useTheme();
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const { zoom } = useViewport();
+  const openStudioPanel = useCallback((panel) => { setStudioPanel(panel); setPanelOpen(true); }, []);
+  const revealTourPanel = useCallback((step) => {
+    if (/sql|springboot|postman|flutter|xmi/.test(step?.selector || '')) openStudioPanel('export');
+    else if (step?.selector?.includes('panel-lateral')) openStudioPanel('design');
+    else if (window.matchMedia('(max-width: 900px)').matches) setPanelOpen(false);
+  }, [openStudioPanel]);
 
   // Try to fetch profile from backend; fallback to token in localStorage
   useEffect(() => {
@@ -147,6 +165,7 @@ const BoardPage = () => {
     setNodes,
       setEdges,
     aplicarCambiosIA,
+    aplicarDiagrama,
     conectado,
     socketUnido,
     errorAcceso,
@@ -162,10 +181,17 @@ const BoardPage = () => {
   const colaboracion = useColaboracion(socketUnido, boardId ? parseInt(boardId, 10) : null, usuarioChat);
   // Sin conexión, la IA del chat es la IA local de este equipo (sus cambios quedan como de la IA)
   const iaLocal = useIALocal({ nodes, edges, aplicar: aplicarCambiosIA });
-  const [chatAbierto, setChatAbierto] = useState(true);
+  // El chat vive en el panel "Chat" del estudio: está abierto cuando ese panel se ve
+  const chatAbierto = panelOpen && studioPanel === 'assistant';
+  const setChatAbierto = useCallback((abrir) => {
+    if (abrir) openStudioPanel('assistant');
+    else setPanelOpen(false);
+  }, [openStudioPanel]);
+  const chatSinLeer = (colaboracion.sinLeer?.equipo || 0) + (colaboracion.sinLeer?.ia || 0);
+  // Pedido al chat desde fuera (p. ej. "Verificar Diagrama" sin conexión)
+  const [pedidoChat, setPedidoChat] = useState(null);
   const [revisionOcultaId, setRevisionOcultaId] = useState(null);
   const [medidasFantasma, setMedidasFantasma] = useState({});
-  const { fitView } = useReactFlow();
   // Las marcas de una revisión se ven un par de horas o hasta que alguien las quita
   const revisionVisible = colaboracion.ultimaRevision
     && colaboracion.ultimaRevision.id !== revisionOcultaId
@@ -315,22 +341,6 @@ const BoardPage = () => {
   
   // Estado para controlar modificaciones de IA
 
-  const ActiveUsers = ({ users }) => (
-    <div className="flex flex-wrap gap-2">
-      {users.map((user, index) => (
-        <div
-          key={index}
-          className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs flex items-center"
-        >
-          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-          {user}
-        </div>
-      ))}
-    </div>
-  );
-
-  
-
   // Owner metadata for this sala (to determine host/owner)
   const [ownerId, setOwnerId] = useState(null);
   const [ownerEmail, setOwnerEmail] = useState(null);
@@ -341,13 +351,19 @@ const BoardPage = () => {
     (async () => {
       if (!boardId) return;
       try {
-        const res = await fetch(`${import.meta.env.VITE_WS_URL || window.location.origin}/apis/sala/${boardId}`, { credentials: 'include' });
+        const metadataUrl = `${import.meta.env.VITE_WS_URL || window.location.origin}/apis/sala/${boardId}`;
+        let res = await fetch(metadataUrl, { credentials: 'include' });
         if (!mounted) return;
-        if (!res.ok) return; // ignore
+        if (res.status === 401 || res.status === 403) {
+          const token = localStorage.getItem('token');
+          if (token) res = await fetch(metadataUrl, { credentials: 'include', headers: { Authorization: `Bearer ${token}` } });
+        }
+        if (!mounted || !res.ok) return;
         const payload = await res.json().catch(() => null);
         const dataRows = payload && payload.data ? payload.data : payload;
         const row = Array.isArray(dataRows) && dataRows.length > 0 ? dataRows[0] : (dataRows || {});
         if (row) {
+          setBoardTitle(row.title || row.description || row.name || row.titulo || 'Mi diagrama');
           // The DB uses userId as owner; try multiple casings
           if (row.userid !== undefined) setOwnerId(row.userid);
           else if (row.userId !== undefined) setOwnerId(row.userId);
@@ -420,8 +436,20 @@ const BoardPage = () => {
         return;
       }
       setChatAbierto(true);
+      setPedidoChat({ pestana: 'ia', n: Date.now() });
       const r = await colaboracion.enviar('Revisa el diagrama completo y dime qué corregir', true);
       if (!r?.ok) Swal.fire({ icon: 'error', title: 'No se pudo pedir la revisión', text: r?.mensaje || 'Revisa tu conexión.' });
+      return;
+    }
+    // Sin conexión: la revisa la IA local en el mismo chat (reglas + Ollama si está) y marca las clases.
+    // Antes llamaba al servidor y fallaba.
+    if (currentUser) {
+      if (!nodes.length) {
+        Swal.fire({ icon: 'info', title: 'Diagrama vacío', text: 'No hay clases en el diagrama para verificar.' });
+        return;
+      }
+      setChatAbierto(true);
+      setPedidoChat({ texto: 'Revisa el diagrama completo y dime qué corregir', n: Date.now() });
       return;
     }
     try {
@@ -955,6 +983,75 @@ const BoardPage = () => {
       console.error('handleExportEAP error:', error);
       Swal.close();
       Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudo generar el archivo .EAP.' });
+    }
+  };
+
+  /**
+   * Código -> diagrama: un .zip de un proyecto Spring Boot (o archivos .java). Se leen sus
+   * entidades en el navegador y se comparan con el diagrama: con conexión, las diferencias quedan
+   * como propuesta en el chat de la IA (el equipo decide); sin conexión, se aplican y se avisa al volver.
+   */
+  const handleImportarCodigo = async (e) => {
+    const input = e.target;
+    const archivos = Array.from(input.files || []);
+    input.value = '';
+    if (!archivos.length) return;
+    const escapar = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    try {
+      Swal.fire({ title: 'Leyendo el código...', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading() });
+      const modelo = modeloDesdeJava(await leerArchivosJava(archivos));
+      Swal.close();
+      const origen = archivos.length === 1 ? archivos[0].name : `${archivos.length} archivos`;
+      if (!modelo.clases.length) {
+        Swal.fire({ icon: 'info', title: 'No hay entidades', text: 'No encontré clases @Entity. Elige el .zip del proyecto Spring Boot o sus archivos .java.' });
+        return;
+      }
+      const actual = { nodes, edges };
+      const sinQuitar = compararConDiagrama(actual, modelo);
+      const conQuitar = compararConDiagrama(actual, modelo, { quitarAusentes: true });
+      const extra = conQuitar.cantidad - sinQuitar.cantidad;
+      if (!sinQuitar.cantidad && !extra) {
+        Swal.fire({ icon: 'success', title: 'El diagrama ya coincide con el código', text: `${modelo.clases.length} entidades leídas de ${origen}.` });
+        return;
+      }
+      const lista = (r) => r.resumen.map((x) => `<li>${escapar(x)}</li>`).join('');
+      const { isConfirmed, value: quitar } = await Swal.fire({
+        title: '📥 Código → diagrama',
+        html: `<div style="text-align:left;font-size:14px">
+          <p>${modelo.clases.length} entidades y ${modelo.relaciones.length} relaciones leídas de <b>${escapar(origen)}</b>.</p>
+          ${sinQuitar.cantidad ? `<p style="margin-top:8px"><b>Diferencias con el diagrama:</b></p><ul style="max-height:200px;overflow:auto;padding-left:18px;list-style:disc">${lista(sinQuitar)}</ul>` : '<p style="margin-top:8px">Solo hay elementos del diagrama que ya no están en el código.</p>'}
+          ${modelo.avisos.length ? `<p style="margin-top:8px;font-size:12px;color:#92400e">${modelo.avisos.slice(0, 3).map(escapar).join('<br>')}</p>` : ''}
+          <p style="margin-top:8px;font-size:12px;color:#555">${socketUnido ? 'Quedará como propuesta en el chat de la IA, con vista previa en la pizarra: el equipo la acepta o la rechaza.' : 'Sin conexión: se aplica ahora y el equipo se entera al volver la conexión.'}</p>
+        </div>`,
+        ...(extra > 0 ? { input: 'checkbox', inputValue: 0, inputPlaceholder: `Quitar también ${extra} elemento${extra === 1 ? '' : 's'} que ya no está${extra === 1 ? '' : 'n'} en el código` } : {}),
+        showCancelButton: true,
+        confirmButtonText: socketUnido ? 'Proponer al equipo' : 'Aplicar',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!isConfirmed) return;
+      const r = quitar ? conQuitar : sinQuitar;
+      if (socketUnido) {
+        const resp = await colaboracion.proponerDesdeCodigo(
+          { nodos: r.nodos, aristas: r.aristas, quitarNodos: r.quitarNodos, quitarAristas: r.quitarAristas },
+          { archivo: origen, entidades: modelo.clases.length },
+        );
+        if (!resp?.ok) {
+          Swal.fire({ icon: 'error', title: 'No se pudo proponer', text: resp?.mensaje || 'Revisa tu conexión.' });
+          return;
+        }
+        setChatAbierto(true);
+        setPedidoChat({ pestana: 'ia', n: Date.now() });
+        return;
+      }
+      aplicarDiagrama(r.estado.nodes, r.estado.edges);
+      colaboracion.agregarSinConexion?.({
+        canal: 'equipo', tipo: 'usuario',
+        texto: `📥 Importé el código (${origen}) sin conexión y apliqué ${r.cantidad} cambio${r.cantidad === 1 ? '' : 's'}: ${r.resumen.join('; ')}.`,
+        datos: {},
+      });
+    } catch (error) {
+      console.error('Importar código', error);
+      Swal.fire({ icon: 'error', title: 'No se pudo leer el código', text: mensajeDeError(error, 'Elige el .zip del proyecto Spring Boot o sus archivos .java.') });
     }
   };
 
@@ -1493,351 +1590,141 @@ const BoardPage = () => {
 
   
 
+  const saveStudio = async () => {
+    try {
+      setSaving(true);
+      Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      const resp = await guardarEstado({ nodes, edges });
+      Swal.close();
+      if (resp && resp.success) {
+        setUnsaved(false);
+        Swal.fire({ icon: 'success', title: 'Guardado', timer: 1200, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(new Error((resp && resp.error) || ''), 'El servidor no confirmó el guardado. Revisa tu conexión e intenta de nuevo.') });
+      }
+    } catch (err) {
+      console.error('Guardar button error', err);
+      Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(err, 'Revisa tu conexión e intenta de nuevo.') });
+    } finally { setSaving(false); }
+  };
+  const selectStudioNode = (node) => { handleNodeSelection(node); openStudioPanel('design'); };
+  const selectStudioEdge = (edge) => { handleEdgeSelection(edge); openStudioPanel('design'); };
+  // Con el panel como capa (pantallas angostas) se cierra para que se vea la clase marcada por la IA
+  const enfocarDesdeChat = (nodoId) => { enfocarClase(nodoId); if (window.matchMedia('(max-width: 900px)').matches) setPanelOpen(false); };
+  const abrirChatIA = () => { openStudioPanel('assistant'); setPedidoChat({ pestana: 'ia', n: Date.now() }); };
+  const panelTitles = { design: 'Diseño', assistant: 'Chat del equipo', tools: 'Herramientas', export: 'Exportar' };
+  const exportOptions = [
+    { id: 'springboot', name: 'Spring Boot', detail: 'Tu backend, listo para construir.', icon: Code2, action: handleGenerateCompleteProject, tag: 'JAVA' },
+    { id: 'flutter', name: 'Flutter', detail: 'Lleva tu idea a una aplicación.', icon: Layers, action: handleGenerateFlutterProject, tag: 'DART' },
+    { id: 'sql', name: 'Base de datos', detail: 'Tablas y relaciones en PostgreSQL.', icon: Database, action: handleExportSQL, tag: 'SQL' },
+    { id: 'postman', name: 'Postman', detail: 'Una colección para probar tu API.', icon: Braces, action: handleGeneratePostmanCollection, tag: 'JSON' },
+    { id: 'xmi', name: 'Diagrama XMI', detail: 'Continúa en otras herramientas UML.', icon: FileCode2, action: handleExportXMI, tag: 'XMI' },
+    { id: 'eap', name: 'Enterprise Architect', detail: 'Tu proyecto con su distribución.', icon: Workflow, action: handleExportEAP, tag: 'EAP' },
+  ];
+  const iaOcupada = !!colaboracion.estadoIA?.ocupada;
+  const relacionesVisibles = edges.filter(e => !e.data?.isAssociationConnection).length;
+
   return (
-  <div className="flex h-[calc(100vh-4rem)]">
-    {/* Sidebar a la izquierda */}
-    <LeftSidebar
-      addNode={addNode}
-      selectedNode={selectedNode}
-      selectedEdge={selectedEdge}
-      editingData={editingData}
-      editingEdge={editingEdge}
-      handleInputChange={handleInputChange}
-      handleArrayChange={handleArrayChange}
-      handleInputChangeEdge={handleInputChangeEdge}
-      updateNodeData={updateNodeData}
-      updateEdgeData={updateEdgeData}
-      handleCreateAssociationClass={handleCreateAssociationClass}
-      iniciarClaseAsociacion={iniciarClaseAsociacion}
-      eligiendoRelacionAC={eligiendoRelacionAC}
-      claseAsociacionSeleccion={claseAsociacionSeleccion}
-      vincularClaseExistente={vincularClaseExistente}
-      quitarClaseAsociacion={quitarClaseAsociacion}
-      setSelectedEdge={setSelectedEdge}
-      setEditingEdge={setEditingEdge}
-    />
+    <main className={`studio ${panelOpen ? 'studio-panel-open' : ''}`}>
+      <aside className="studio-rail" aria-label="Navegación del estudio">
+        <Link to="/board" className="studio-mark" aria-label="Volver a mis diagramas" title="Mis diagramas"><Workflow size={25} strokeWidth={1.6} /></Link>
+        <div className="studio-rail-divider" />
+        <nav className="studio-rail-nav" aria-label="Paneles del editor">
+          {[['design', SlidersHorizontal, 'Diseño'], ['assistant', MessagesSquare, 'Chat'], ['tools', Wrench, 'Acciones'], ['export', Download, 'Exportar']].map(([id, Icon, label]) => <button key={id} className={`studio-rail-button ${panelOpen && studioPanel === id ? 'is-active' : ''}`} onClick={() => openStudioPanel(id)} aria-pressed={panelOpen && studioPanel === id} aria-label={panelTitles[id]} title={panelTitles[id]}><Icon size={21} strokeWidth={1.6} /><span>{label}</span>{id === 'assistant' && chatSinLeer > 0 && !chatAbierto && <b className="studio-rail-badge" aria-label={`${chatSinLeer} mensajes sin leer`}>{chatSinLeer}</b>}</button>)}
+        </nav>
+        <div className="studio-rail-bottom"><button className="studio-rail-button" onClick={toggleTheme} aria-label={isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'} title={isDark ? 'Tema claro' : 'Tema oscuro'}>{isDark ? <Sun size={20} /> : <Moon size={20} />}</button><BotonAyuda embedded onRelanzarTour={() => setTourEditorAbierto(true)} /><span className="studio-version">UML 2.5</span></div>
+      </aside>
 
-    {/* Contenido principal a la derecha */}
-    <div className="flex-1 flex flex-col">
+      <section className="studio-workspace">
+        <header className="studio-header">
+          <div className="studio-document"><div className="studio-breadcrumb"><Link to="/board"><ArrowLeft size={12} /> Mis diagramas</Link><ChevronRight size={11} /><span>Estudio UML</span></div><h1 title={boardTitle}>{boardTitle}<span className="studio-document-type">DIAGRAMA DE CLASES</span></h1></div>
+          <div className="studio-header-actions"><button className={`studio-ia-state ${iaOcupada ? 'is-busy' : ''}`} onClick={abrirChatIA} title={iaOcupada ? `La IA está atendiendo a ${colaboracion.estadoIA.atendiendoA}` : 'La IA del equipo: escríbele en el chat o con @IA'}><span className="status-dot" />{iaOcupada ? 'IA pensando…' : socketUnido ? 'IA del equipo' : 'IA local'}</button><span className="studio-save-state">{conectado ? <Check size={13} /> : <CloudOff size={13} />}{saving ? 'Guardando…' : !conectado ? 'Copia local' : unsaved ? 'Cambios pendientes' : 'Al día'}</span><span className="studio-user avatar" title={currentUser?.name || currentUser?.email}>{(currentUser?.name || currentUser?.email || 'T').charAt(0).toUpperCase()}</span><button className="studio-export-trigger" onClick={() => openStudioPanel('export')}><Download size={16} /><span>Exportar</span></button><button className="btn-primary studio-save" disabled={!unsaved || saving} onClick={saveStudio}><Save size={15} /><span>{saving ? 'Guardando…' : 'Guardar'}</span></button></div>
+        </header>
+
+        <div className="studio-body">
+          <section className="studio-stage" aria-label="Área de diseño">
+            <div className="studio-stage-heading"><div><span className="eyebrow">ESPACIO PARA CREAR</span><h2>Conecta tus ideas.</h2></div><div className="studio-stage-actions"><button className="studio-verify" onClick={() => archivoCodigoRef.current?.click()} aria-label="Actualizar desde el código" title="Actualizar el diagrama desde el código: elige el .zip del proyecto Spring Boot o sus archivos .java" data-tour="desde-codigo"><FileUp size={16} /><span>Desde código</span></button><input ref={archivoCodigoRef} type="file" accept=".zip,.java" multiple onChange={handleImportarCodigo} hidden /><button className="studio-verify" aria-label="Revisar diagrama" onClick={handleVerifyDiagramAI} data-tour="verificar"><ShieldCheck size={16} /><span>Revisar diagrama</span></button><button className="icon-button" onClick={() => setPanelOpen(!panelOpen)} title={panelOpen ? 'Ampliar el lienzo' : 'Mostrar panel'} aria-label={panelOpen ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}>{panelOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}</button></div></div>
+            {avisoSincronia && <div className="studio-notice is-warm" role="status"><TriangleAlert size={14} /><span>{avisoSincronia}</span><button onClick={cerrarAvisoSincronia} aria-label="Cerrar aviso"><X size={13} /></button></div>}
+            {eligiendoRelacionAC && <div className="studio-notice" role="status"><Spline size={14} /><span>Haz clic en la línea de la asociación entre las dos clases: se le agrega una clase de asociación.</span><button onClick={() => setEligiendoRelacionAC(false)}>Cancelar (Esc)</button></div>}
+            {currentUser && !conectado && !errorAcceso && <div className="studio-offline"><CloudOff size={14} /><span>Sin conexión con el servidor: los cambios se guardan en este equipo y se sincronizan al reconectar. La IA local sigue disponible.</span></div>}
+            <div className="studio-canvas-shell">
+              <div className="studio-canvas-label"><span className="status-dot" /> LIENZO PRINCIPAL <span>/ 01</span></div>
+              <div className="studio-canvas">
+                <ReactFlow
+                  data-tour="lienzo"
+                  className={eligiendoRelacionAC ? 'is-picking' : undefined}
+                  nodes={nodosMostrados}
+                  edges={aristasMostradas}
+                  onNodesChange={alCambiarNodos}
+                  onEdgesChange={alCambiarAristas}
+                  onConnect={onConnect}
+                  onNodeClick={(_, node) => { if (!esFantasma(node.id)) selectStudioNode(nodes.find((n) => n.id === node.id) || node); }}
+                  onEdgeClick={(_, edge) => {
+                    if (esFantasma(edge.id)) return;
+                    if (eligiendoRelacionAC) {
+                      setEligiendoRelacionAC(false);
+                      crearClaseAsociacionEn(edge.id);
+                      openStudioPanel('design');
+                      return;
+                    }
+                    selectStudioEdge(edges.find((e) => e.id === edge.id) || edge);
+                  }}
+                  nodeTypes={nodeTypes}
+                  edgeTypes={edgeTypes}
+                  defaultEdgeOptions={defaultEdgeOptions}
+                  connectionMode="loose"
+                  isValidConnection={(connection) => connection.source && connection.target}
+                  nodesDraggable={!canvasLocked}
+                  nodesConnectable={!canvasLocked}
+                  elementsSelectable={!canvasLocked}
+                  fitView
+                  fitViewOptions={{ padding: .28 }}
+                  minZoom={0.15}
+                >
+                  {showGrid && <Background color="var(--canvas-dot)" gap={24} size={1} />}
+                </ReactFlow>
+                {nodosMostrados.length === 0 && <div className="studio-empty-canvas"><div className="studio-empty-art" aria-hidden="true"><Braces size={35} strokeWidth={1.3} /><span /><Workflow size={32} strokeWidth={1.3} /></div><span className="eyebrow">EL COMIENZO DE ALGO GRANDE</span><h3>Tu próxima idea,<br /><em>en este lienzo.</em></h3><p>Añade tu primera clase o pídele una idea a la IA del equipo.<br />El resto empieza a conectar.</p><button onClick={abrirChatIA} className="studio-empty-ai"><Sparkles size={15} /> Crear con la IA del equipo <ArrowUpRight size={15} /></button></div>}
+              </div>
+              <div className="studio-canvas-footer"><span><Braces size={13} /> {nodes.filter(n => !n.data?.isNote).length} clases<span className="studio-stat-divider" />{relacionesVisibles} relaciones</span><span className="studio-canvas-tip">Arrastra desde un punto para conectar</span><div className="studio-zoom"><button aria-label="Alejar" title="Alejar" onClick={() => zoomOut({ duration: 200 })}><Minus size={14} /></button><span>{Math.round(zoom * 100)}%</span><button aria-label="Acercar" title="Acercar" onClick={() => zoomIn({ duration: 200 })}><Plus size={14} /></button><button aria-label="Ajustar diagrama a la vista" title="Ajustar a la vista" onClick={() => fitView({ padding: .2, duration: 250 })}><Maximize2 size={14} /></button><button aria-label="Mostrar cuadrícula" title="Mostrar cuadrícula" aria-pressed={showGrid} onClick={() => setShowGrid(!showGrid)}><Grid2X2 size={14} /></button><button aria-label={canvasLocked ? "Desbloquear edición del lienzo" : "Bloquear edición del lienzo"} title={canvasLocked ? "Desbloquear lienzo" : "Bloquear lienzo"} aria-pressed={canvasLocked} onClick={() => setCanvasLocked(!canvasLocked)}>{canvasLocked ? <LockKeyhole size={14} /> : <UnlockKeyhole size={14} />}</button></div></div>
+            </div>
+
+            <div className="studio-bottom"><span className="studio-bottom-note"><span className="status-dot" /> {activeUsers.length > 1 ? `${activeUsers.length} personas creando` : 'A tu ritmo. A tu manera.'}</span><div className="studio-creation-bar"><button className="studio-add-class" data-tour="nueva-clase" onClick={() => { addNode(); openStudioPanel('design'); }}><Plus size={18} /><span>Nueva clase</span></button><button className="studio-add-note" aria-label="Nueva nota" title="Nueva nota" onClick={() => addNode('noteNode', { text: 'Nueva nota...\nHaz clic para editar', isNote: true })}><StickyNote size={18} /><span>Nota</span></button><button className={`studio-add-association ${eligiendoRelacionAC ? 'is-active' : ''}`} data-tour="clase-asociacion" aria-pressed={!!eligiendoRelacionAC} aria-label="Clase de asociación" title="Clase unida con una línea punteada a una asociación entre dos clases (clase intermedia)" onClick={iniciarClaseAsociacion}><Spline size={18} /><span>{eligiendoRelacionAC ? 'Elige la relación…' : 'Asociación'}</span></button><span className="studio-tool-divider" /><div className="studio-history" data-tour="deshacer"><button onClick={deshacer} disabled={!puedeDeshacer} aria-label="Deshacer" title="Deshacer (Ctrl+Z)"><Undo2 size={17} /></button><button onClick={rehacer} disabled={!puedeRehacer} aria-label="Rehacer" title="Rehacer (Ctrl+Y)"><Redo2 size={17} /></button></div></div><span className="studio-shortcut"><kbd>Ctrl</kbd> + <kbd>Z</kbd> para deshacer</span></div>
+          </section>
+
+          {panelOpen && <button className="studio-panel-backdrop" onClick={() => setPanelOpen(false)} aria-label="Cerrar panel lateral" />}
+          <aside className="studio-inspector" hidden={!panelOpen} aria-label="Panel del estudio">
+            <div className="studio-inspector-header"><span>{panelTitles[studioPanel]}</span><button onClick={() => setPanelOpen(false)} className="icon-button" aria-label="Cerrar panel del estudio"><X size={17} /></button></div>
+            <div className="studio-panel-tabs" role="tablist" aria-label="Contenido del panel"><button role="tab" id="studio-tab-design" aria-controls="studio-design" aria-selected={studioPanel === 'design'} onClick={() => setStudioPanel('design')}><SlidersHorizontal size={14} /> Diseño</button><button role="tab" id="studio-tab-assistant" aria-controls="studio-assistant" aria-selected={studioPanel === 'assistant'} onClick={() => setStudioPanel('assistant')}><MessagesSquare size={14} /> Chat{chatSinLeer > 0 && studioPanel !== 'assistant' && <b className="studio-chat-badge">{chatSinLeer}</b>}</button><button role="tab" id="studio-tab-tools" aria-controls="studio-tools" aria-selected={studioPanel === 'tools'} onClick={() => setStudioPanel('tools')}><Wrench size={14} /> Acciones</button></div>
+
+            <section id="studio-design" role="tabpanel" aria-labelledby="studio-tab-design" className="studio-panel-content" hidden={studioPanel !== 'design'}>
+              {!selectedNode && !selectedEdge && <div className="studio-design-intro"><span className="eyebrow">DALE FORMA A LO QUE VIENE</span><h3>De una idea<br />a mil conexiones.</h3><Workflow size={55} strokeWidth={1.1} /></div>}
+              <LeftSidebar embedded addNode={addNode} selectedNode={selectedNode} selectedEdge={selectedEdge} editingData={editingData} editingEdge={editingEdge} handleInputChange={handleInputChange} handleArrayChange={handleArrayChange} handleInputChangeEdge={handleInputChangeEdge} updateNodeData={updateNodeData} updateEdgeData={updateEdgeData} handleCreateAssociationClass={handleCreateAssociationClass} iniciarClaseAsociacion={iniciarClaseAsociacion} eligiendoRelacionAC={eligiendoRelacionAC} claseAsociacionSeleccion={claseAsociacionSeleccion} vincularClaseExistente={vincularClaseExistente} quitarClaseAsociacion={quitarClaseAsociacion} setSelectedEdge={setSelectedEdge} setEditingEdge={setEditingEdge} />
+              <div className="studio-outline"><div className="studio-outline-heading"><span>EN ESTE LIENZO</span><span>{nodes.length}</span></div>{nodes.length ? nodes.map(node => <button key={node.id} onClick={() => { selectStudioNode(node); fitView({ nodes: [{ id: node.id }], maxZoom: 1, duration: 250 }); }} className={selectedNode?.id === node.id ? 'is-selected' : ''}>{node.data?.isNote ? <StickyNote size={15} /> : <Braces size={15} />}<span>{node.data?.className || node.data?.text?.split('\n')[0] || 'Nota'}</span><ChevronRight size={13} /></button>) : <p>Las clases y notas que crees aparecerán aquí.</p>}</div>
+              {(activeUsers.length > 0 || participantes.length > 0) && <div className="studio-participants"><span className="eyebrow"><Users size={13} /> EN LÍNEA</span>{(activeUsers.length ? activeUsers : participantes).map((p, idx) => <span key={idx}>{typeof p === 'string' ? p : p.name || p.email || 'Participante'}</span>)}</div>}
+            </section>
+
+            <section id="studio-assistant" role="tabpanel" aria-labelledby="studio-tab-assistant" className="studio-assistant-slot" hidden={studioPanel !== 'assistant'}>{currentUser && <ChatSala colaboracion={colaboracion} currentUser={currentUser} onEnfocarClase={enfocarDesdeChat} onQuitarMarcas={() => setRevisionOcultaId(colaboracion.ultimaRevision?.id ?? null)} abierto={chatAbierto} setAbierto={setChatAbierto} enLinea={!!socketUnido} iaLocal={iaLocal} pedidoExterno={pedidoChat} />}</section>
+            <section id="studio-tools" role="tabpanel" aria-labelledby="studio-tab-tools" className="studio-panel-content" hidden={studioPanel !== 'tools'}><BurbujaHerramientasDiagrama embedded nodes={nodes} edges={edges} setNodes={setNodes} setEdges={setEdges} selectedNodeIds={selectedNode ? [selectedNode.id] : []} selectedEdgeIds={selectedEdge ? [selectedEdge.id] : []} boardId={boardId} updateBoardData={updateBoardData} userEmail={currentUser?.email} /></section>
+            <section className="studio-panel-content studio-export-panel" hidden={studioPanel !== 'export'} aria-label="Formatos de exportación"><div className="studio-export-intro"><span><ArrowUpRight size={25} /></span><span className="eyebrow">EL SIGUIENTE PASO</span><h3>Tu idea, más allá<br />del lienzo.</h3><p>Elige cómo quieres continuar con tu proyecto.</p></div><div className="studio-export-options">{exportOptions.map(({ id, name, detail, icon: Icon, action, tag }) => <button key={id} onClick={action} data-tour={id}><span className="studio-export-icon"><Icon size={19} /></span><span><strong>{name}</strong><small>{detail}</small></span><span className="studio-export-format">{tag}</span></button>)}</div><button className="studio-export-more" onClick={() => setStudioPanel('tools')}>¿Buscas una imagen o un JSON?<ArrowUpRight size={15} /></button></section>
+          </aside>
+        </div>
+      </section>
       {errorAcceso && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-          <div className="max-w-md rounded-xl bg-white p-6 text-center shadow-2xl">
-            <p className="text-3xl">🔒</p>
-            <h2 className="mt-2 text-lg font-semibold">No puedes abrir este tablero</h2>
-            <p className="mt-2 text-sm text-gray-600">{errorAcceso}</p>
-            <button onClick={() => navigate('/board')} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">Ir a mis tableros</button>
+        <div className="modal-overlay studio-lock-overlay" role="alertdialog" aria-modal="true" aria-labelledby="studio-lock-title">
+          <div className="modal-shell studio-lock">
+            <span className="studio-lock-icon"><LockKeyhole size={28} strokeWidth={1.6} /></span>
+            <span className="eyebrow">ACCESO RESTRINGIDO</span>
+            <h2 id="studio-lock-title">No puedes abrir este tablero.</h2>
+            <p>{errorAcceso}</p>
+            <button onClick={() => navigate('/board')} className="btn-primary"><ArrowLeft size={16} /> Ir a mis diagramas</button>
           </div>
         </div>
       )}
-      {avisoSincronia && (
-        <div className="px-3 py-1.5 text-xs bg-amber-100 text-amber-900 border-b border-amber-200 flex justify-between gap-2">
-          <span>{avisoSincronia}</span>
-          <button onClick={cerrarAvisoSincronia} aria-label="Cerrar aviso">✕</button>
-        </div>
-      )}
-      {eligiendoRelacionAC && (
-        <div className="px-3 py-1.5 text-xs bg-indigo-100 text-indigo-900 border-b border-indigo-200 flex justify-between gap-2">
-          <span>🔗 Haz clic en la línea de la asociación entre las dos clases: se le agrega una clase de asociación.</span>
-          <button onClick={() => setEligiendoRelacionAC(false)} className="font-semibold hover:underline">Cancelar (Esc)</button>
-        </div>
-      )}
-      {currentUser && !conectado && !errorAcceso && (
-        <div className="px-3 py-1.5 text-xs bg-amber-100 text-amber-900 border-b border-amber-200">
-          Sin conexión con el servidor: los cambios se guardan en este equipo y se sincronizan al reconectar. La IA local sigue disponible.
-        </div>
-      )}
-      {/* Barra superior con botones y usuarios activos */}
-      <div className="flex items-center justify-between p-2 bg-white border-b">
-        <div className="flex items-center space-x-4">
-          {/* Deshacer y rehacer */}
-          <div className="flex items-center gap-1" data-tour="deshacer">
-            <button
-              onClick={deshacer}
-              disabled={!puedeDeshacer}
-              title="Deshacer (Ctrl+Z)"
-              aria-label="Deshacer"
-              className={`w-9 h-9 flex items-center justify-center rounded-md border transition-colors ${puedeDeshacer ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7v6h6" />
-                <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
-              </svg>
-            </button>
-            <button
-              onClick={rehacer}
-              disabled={!puedeRehacer}
-              title="Rehacer (Ctrl+Y)"
-              aria-label="Rehacer"
-              className={`w-9 h-9 flex items-center justify-center rounded-md border transition-colors ${puedeRehacer ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'}`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 7v6h-6" />
-                <path d="M21 13a9 9 0 1 1-3-7.7L21 8" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Botón de verificación UML con IA */}
-          <button
-            onClick={handleVerifyDiagramAI}
-            data-tour="verificar"
-            className="btn-primary bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-md transition-all duration-200"
-          >
-            Verificar Diagrama
-          </button>
-
-          {/* (Edit/Delete buttons removed) */}
-          <button
-            onClick={async () => {
-              try {
-                setSaving(true);
-                Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-                const resp = await guardarEstado({ nodes, edges });
-                Swal.close();
-                if (resp && resp.success) {
-                  setUnsaved(false);
-                  Swal.fire({ icon: 'success', title: 'Guardado', timer: 1200, showConfirmButton: false });
-                } else {
-                  Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(new Error((resp && resp.error) || ''), 'El servidor no confirmó el guardado. Revisa tu conexión e intenta de nuevo.') });
-                }
-              } catch (err) {
-                console.error('Guardar button error', err);
-                Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: mensajeDeError(err, 'Revisa tu conexión e intenta de nuevo.') });
-              } finally {
-                setSaving(false);
-              }
-            }}
-            disabled={!unsaved || saving}
-            className={`px-3 py-2 rounded-md flex items-center gap-2 ${!unsaved || saving ? 'bg-gray-300 text-gray-700 cursor-not-allowed' : 'bg-green-600 text-white'}`}
-          >
-            {saving ? 'Guardando…' : 'Guardar'}
-          </button>
-
-          {/* Botón Postman (genera colección Postman para probar la API) */}
-          <button
-            onClick={() => handleGeneratePostmanCollection()}
-            data-tour="postman"
-            className="btn-secondary bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-md flex items-center gap-2"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Postman
-          </button>
-
-          {/* Botón de generación Spring Boot */}
-          <button
-            onClick={() => handleGenerateCompleteProject()}
-            data-tour="springboot"
-            className="btn-secondary bg-gradient-to-r from-blue-500 to-sky-600 text-white px-4 py-2 rounded-md flex items-center gap-2"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M19 11H5m14 0a4 4 0 01-4 4H9a4 4 0 01-4-4m14 0a4 4 0 00-4-4h6a4 4 0 014 4z"
-              />
-            </svg>
-            Spring Boot
-          </button>
-
-          {/* Botón de generación Flutter (server-side) */}
-          <button
-            onClick={() => handleGenerateFlutterProject()}
-            className="btn-secondary bg-gradient-to-r from-blue-500 to-sky-600 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar proyecto Flutter desde servidor"
-            data-tour="flutter"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeWidth="1.5" d="M12 2l3 5-3 5-3-5 3-5zM12 22l3-5-3-5-3 5 3 5z" />
-            </svg>
-            Flutter
-          </button>
-
-          <button
-            onClick={handleExportSQL}
-            className="btn-secondary bg-gradient-to-r from-amber-500 to-orange-600 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar el modelo relacional como script SQL de PostgreSQL"
-            data-tour="sql"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <ellipse cx="12" cy="5" rx="8" ry="3" strokeWidth="1.5" />
-              <path strokeWidth="1.5" d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
-              <path strokeWidth="1.5" d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" />
-            </svg>
-            SQL
-          </button>
-
-          <button
-            onClick={handleExportXMI}
-            className="btn-secondary bg-gradient-to-r from-slate-500 to-slate-700 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar el diagrama en XMI 2.5 (compatible con Enterprise Architect)"
-            data-tour="xmi"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeWidth="1.5" d="M9 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V9" />
-              <path strokeWidth="1.5" d="M14 3h7v7M21 3l-9 9" />
-            </svg>
-            XMI
-          </button>
-
-          <button
-            onClick={handleExportEAP}
-            className="btn-secondary bg-gradient-to-r from-teal-600 to-cyan-700 text-white px-3 py-2 rounded-md flex items-center gap-2"
-            title="Exportar como proyecto de Enterprise Architect (.EAP) con el diagrama dibujado"
-            data-tour="eap"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <rect x="3" y="4" width="7" height="6" rx="1" strokeWidth="1.5" />
-              <rect x="14" y="14" width="7" height="6" rx="1" strokeWidth="1.5" />
-              <path strokeWidth="1.5" d="M10 7h4v10" />
-            </svg>
-            EAP
-          </button>
-
-          {/* Usuarios activos (la IA es un integrante más) */}
-          <ActiveUsers users={activeUsers} />
-          <div
-            className={`px-2 py-1 rounded-full text-xs flex items-center ${colaboracion.estadoIA.ocupada ? 'bg-violet-200 text-violet-900' : 'bg-violet-100 text-violet-800'}`}
-            title={colaboracion.estadoIA.ocupada ? `Atendiendo a ${colaboracion.estadoIA.atendiendoA}` : 'La IA del equipo: escríbele con @IA en el chat'}
-          >
-            <span className={`w-2 h-2 rounded-full mr-2 ${colaboracion.estadoIA.ocupada ? 'bg-violet-600 animate-pulse' : 'bg-violet-500'}`}></span>
-            🤖 IA{colaboracion.estadoIA.ocupada ? ' pensando…' : ''}
-          </div>
-          {/* Debug: button to dump recent socket events and current edges */}
-          <button
-            onClick={() => {
-              try {
-                const events = typeof getDebugEvents === 'function' ? getDebugEvents() : [];
-                // console.debug('BoardPage: Debug events (last):', events);
-                // console.debug('BoardPage: Current edges snapshot:', edges);
-                // Also show a quick alert count for convenience
-                // eslint-disable-next-line no-alert
-                alert(`Debug events: ${events.length} • edges: ${edges.length}`);
-              } catch (err) {
-                console.error('BoardPage: failed to get debug events', err);
-              }
-            }}
-            className="px-2 py-1 text-xs bg-gray-100 rounded border ml-2"
-            title="Imprimir eventos de socket recientes en la consola"
-          >
-            Debug Events
-          </button>
-        </div>
-
-        {/* Lista de participantes */}
-        <div className="flex gap-2">
-          {participantes.map((p, idx) => (
-            <span
-              key={`participante-${idx}`}
-              className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs"
-            >
-              {p}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* React Flow (Diagrama) */}
-      <div className="flex-1">
-        <ReactFlow
-          data-tour="lienzo"
-          nodes={nodosMostrados}
-          edges={aristasMostradas}
-          onNodesChange={alCambiarNodos}
-          onEdgesChange={alCambiarAristas}
-          onConnect={onConnect}
-          onNodeClick={(_, node) => { if (!esFantasma(node.id)) handleNodeSelection(nodes.find((n) => n.id === node.id) || node); }}
-          onEdgeClick={(_, edge) => {
-            if (esFantasma(edge.id)) return;
-            if (eligiendoRelacionAC) {
-              setEligiendoRelacionAC(false);
-              crearClaseAsociacionEn(edge.id);
-              return;
-            }
-            handleEdgeSelection(edges.find((e) => e.id === edge.id) || edge);
-          }}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          defaultEdgeOptions={defaultEdgeOptions}
-          connectionMode="loose"
-          isValidConnection={(connection) => {
-            // Permitir TODAS las conexiones, incluyendo conexiones recursivas (mismo nodo)
-            // Solo validar que no sea una conexión inválida (sin source o target)
-            return connection.source && connection.target;
-          }}
-          fitView
-          className="bg-gray-50"
-        >
-          <Background color="#e0e7ff" gap={20} />
-          <Controls className="bg-white shadow-md" />
-
-        </ReactFlow>
-      </div>
-      
-      {/* Chat del equipo con la IA compartida */}
-      {currentUser && (
-        <ChatSala
-          colaboracion={colaboracion}
-          currentUser={currentUser}
-          onEnfocarClase={enfocarClase}
-          onQuitarMarcas={() => setRevisionOcultaId(colaboracion.ultimaRevision?.id ?? null)}
-          abierto={chatAbierto}
-          setAbierto={setChatAbierto}
-          enLinea={!!socketUnido}
-          iaLocal={iaLocal}
-        />
-      )}
-
-      {/* Burbuja de herramientas */}
-
-      <BurbujaHerramientasDiagrama
-        nodes={nodes}
-        edges={edges}
-        setNodes={setNodes}
-        setEdges={setEdges}
-        selectedNodeIds={selectedNode ? [selectedNode.id] : []}
-        selectedEdgeIds={selectedEdge ? [selectedEdge.id] : []}
-        boardId={boardId}
-        updateBoardData={updateBoardData}
-        userEmail={currentUser?.email}
-      />
-
-  {/* Debug panel removed */}
-
-      <Tour
-        pasos={TOUR_EDITOR}
-        abierto={tourEditorAbierto}
-        onCerrar={() => { setTourEditorAbierto(false); marcarTourVisto('editor'); }}
-      />
-      <BotonAyuda onRelanzarTour={() => setTourEditorAbierto(true)} />
-    </div>
-  </div>
-);
-
+      <Tour pasos={TOUR_EDITOR} abierto={tourEditorAbierto} onStepChange={revealTourPanel} onCerrar={() => { setTourEditorAbierto(false); marcarTourVisto('editor'); }} />
+    </main>
+  );
 };
 
-// Wrapper con provider
 export default function BoardPageWrapper() {
-  return (
-    <ReactFlowProvider>
-      <BoardPage />
-    </ReactFlowProvider>
-  );
+  return <ReactFlowProvider><BoardPage /></ReactFlowProvider>;
 }

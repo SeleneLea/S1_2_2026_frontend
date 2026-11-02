@@ -1,30 +1,29 @@
 // ClassNode.jsx
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
-import '../../../src/index.css';
 import { mostrarAtributo, mostrarMetodo, etiquetaEstereotipo } from '../../utils/umlParser.js';
 
 // Vista previa de la IA: cómo se ve la clase según la propuesta o la revisión
 const ESTILO_PROPUESTA = {
-  nueva: { outline: '3px dashed #16a34a', outlineOffset: 3, opacity: 0.8 },
-  modificada: { outline: '3px dashed #d97706', outlineOffset: 3 },
-  eliminada: { outline: '3px dashed #dc2626', outlineOffset: 3, opacity: 0.55 },
+  nueva: { outline: '3px dashed var(--color-success)', outlineOffset: 3, opacity: 0.8 },
+  modificada: { outline: '3px dashed var(--color-warning)', outlineOffset: 3 },
+  eliminada: { outline: '3px dashed var(--color-error)', outlineOffset: 3, opacity: 0.55 },
 };
 const ETIQUETA_PROPUESTA = {
-  nueva: ['🤖 Clase nueva propuesta', '#16a34a'],
-  modificada: ['🤖 Cambios propuestos', '#d97706'],
-  eliminada: ['🤖 Se eliminaría', '#dc2626'],
+  nueva: ['🤖 Clase nueva propuesta', 'var(--color-success)'],
+  modificada: ['🤖 Cambios propuestos', 'var(--color-warning)'],
+  eliminada: ['🤖 Se eliminaría', 'var(--color-error)'],
 };
-const COLOR_OBSERVACION = { error: '#dc2626', aviso: '#d97706', sugerencia: '#2563eb' };
+const COLOR_OBSERVACION = { error: 'var(--color-error)', aviso: 'var(--color-warning)', sugerencia: 'var(--sage-ink)' };
 
 function Insignia({ texto, color, titulo }) {
   return (
     <div
       title={titulo}
       style={{
-        position: 'absolute', top: -22, left: 0, background: color, color: '#fff', fontSize: 10,
+        position: 'absolute', top: -22, left: 0, background: color, color: 'var(--color-surface)', fontSize: 10, fontWeight: 600,
         padding: '2px 6px', borderRadius: 6, whiteSpace: 'nowrap', maxWidth: 260, overflow: 'hidden',
-        textOverflow: 'ellipsis', boxShadow: '0 1px 3px rgb(0 0 0 / 0.25)', zIndex: 5,
+        textOverflow: 'ellipsis', boxShadow: '0 1px 3px var(--color-shadow-elevated)', zIndex: 5,
       }}
     >
       {texto}
@@ -41,10 +40,10 @@ function ClassNode({ data, isConnectable }) {
     ? ESTILO_PROPUESTA[propuesta]
     : peorObservacion ? { outline: `3px solid ${COLOR_OBSERVACION[peorObservacion]}`, outlineOffset: 3 } : {};
   const marca = (texto, nuevo) => (nuevo
-    ? <span style={{ color: '#15803d', fontWeight: 600 }}>+ {texto}</span>
+    ? <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>+ {texto}</span>
     : texto);
   const tachado = (texto, key) => (
-    <li key={key} style={{ color: '#dc2626', textDecoration: 'line-through' }}>{texto}</li>
+    <li key={key} style={{ color: 'var(--color-error)', textDecoration: 'line-through' }}>{texto}</li>
   );
   // Opcional: parsear cada atributo si viene con un separador. 
   // Por ejemplo, si guardas "private edad: int", no hace falta transformarlo.
@@ -56,12 +55,12 @@ function ClassNode({ data, isConnectable }) {
       <div style={{ 
         width: 12, 
         height: 12, 
-        background: '#3b82f6', // Azul más visible
+        background: 'var(--sage-ink)', // Azul más visible
         borderRadius: '50%',
         border: '2px solid #ffffff',
         position: 'relative',
         zIndex: 1001,
-        boxShadow: '0 0 6px rgba(59, 130, 246, 0.8)'
+        boxShadow: '0 0 6px var(--color-shadow-elevated)'
       }}>
         <Handle
           type="target"
@@ -75,7 +74,7 @@ function ClassNode({ data, isConnectable }) {
             transform: 'translate(-50%, -50%)',
             width: 12,
             height: 12,
-            background: '#3b82f6',
+            background: 'var(--sage-ink)',
             border: '2px solid #fff'
           }}
         />
@@ -156,7 +155,7 @@ function ClassNode({ data, isConnectable }) {
               top: '25%',
               width: '18px',
               height: '18px',
-              border: '3px solid #3b82f6',
+              border: '3px solid var(--sage-ink)',
               background: '#ffffff',
               borderRadius: '50%',
               cursor: 'crosshair'
@@ -172,7 +171,7 @@ function ClassNode({ data, isConnectable }) {
               top: '50%',
               width: '18px',
               height: '18px',
-              border: '3px solid #3b82f6',
+              border: '3px solid var(--sage-ink)',
               background: '#ffffff',
               borderRadius: '50%',
               cursor: 'crosshair'
@@ -188,7 +187,7 @@ function ClassNode({ data, isConnectable }) {
               top: '75%',
               width: '18px',
               height: '18px',
-              border: '3px solid #3b82f6',
+              border: '3px solid var(--sage-ink)',
               background: '#ffffff',
               borderRadius: '50%',
               cursor: 'crosshair'
@@ -253,7 +252,7 @@ function ClassNode({ data, isConnectable }) {
         )}
         <strong style={{ ...(data.stereotype === 'abstract' ? { fontStyle: 'italic' } : {}), ...(propuesta === 'eliminada' ? { textDecoration: 'line-through' } : {}) }}>
           {cambios?.nombreNuevo
-            ? <><span style={{ textDecoration: 'line-through', color: '#dc2626' }}>{data.className}</span> <span style={{ color: '#15803d' }}>{cambios.nombreNuevo}</span></>
+            ? <><span style={{ textDecoration: 'line-through', color: 'var(--color-error)' }}>{data.className}</span> <span style={{ color: 'var(--color-success)' }}>{cambios.nombreNuevo}</span></>
             : (data.className || "ClaseSinNombre")}
         </strong>
       </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import GuiaOllama from './GuiaOllama';
 import {
   CATALOGO_TEXTO, CATALOGO_VOZ, NOMBRE_NIVEL, configuracionDeTexto, configuracionDeVoz,
@@ -9,16 +9,85 @@ import { modeloDescargado, prepararModelo } from '../ia-local/motorIA.js';
 import { iaNubeDisponible, olvidarEstadoNube } from '../ia-local/asistenteLocal.js';
 import { EJEMPLOS_ORDENES } from '../ia-local/interpreteOrdenes.js';
 import {
-  estadoOllama, modeloOllamaPorDefecto, olvidarEstadoOllama,
+  descargarGuion, estadoOllama, guionConfigurar, modeloOllamaPorDefecto, modelosConVista, olvidarEstadoOllama,
 } from '../ia-local/ollama.js';
+import { sugerenciaParaEquipo } from '../ia-local/sugerenciaEquipo.js';
 
 const mb = (bytes) => `${Math.round((bytes || 0) / 1048576)} MB`;
+const windows = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
+
+/** Navegador basado en Chromium: prefijo de sus páginas internas y dónde suele estar su .exe en Windows. */
+const NAVEGADOR = (() => {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  if (/Edg\//.test(ua)) return { prefijo: 'edge', exe: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' };
+  if (/OPR\//.test(ua)) return { prefijo: 'opera', exe: '%LOCALAPPDATA%\\Programs\\Opera\\opera.exe' };
+  if (/Chrome\//.test(ua)) return { prefijo: 'chrome', exe: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' };
+  return null;
+})();
+
+/**
+ * Cómo pasar el navegador a la gráfica dedicada. En Windows, Chrome, Edge y Opera ignoran el
+ * pedido de "alto rendimiento" de la página: hay que activarlo en el navegador o en Windows.
+ */
+const AvisoGraficaIntegrada = () => {
+  const [copiado, setCopiado] = useState(false);
+  const bandera = NAVEGADOR && `${NAVEGADOR.prefijo}://flags/#force-high-performance-gpu`;
+  const copiar = () => navigator.clipboard?.writeText(bandera).then(() => setCopiado(true)).catch(() => {});
+  const codigo = 'px-1 rounded bg-amber-100 break-all font-mono text-[11px]';
+  return (
+    <div className="text-amber-800 space-y-1">
+      <div>
+        El navegador está usando la gráfica integrada. Si tu equipo tiene una dedicada (NVIDIA o AMD),
+        actívala y la IA local irá mucho más rápida:
+      </div>
+      <ol className="list-decimal pl-4 space-y-1">
+        {bandera && (
+          <li>
+            Lo más rápido: pega en la barra de direcciones <code className={codigo}>{bandera}</code>{' '}
+            <button type="button" onClick={copiar} className="underline font-semibold">{copiado ? '✓ copiado' : 'copiar'}</button>,
+            cambia «Default» por <b>Enabled</b> y pulsa <b>Reiniciar</b> (Relaunch).
+          </li>
+        )}
+        {windows && NAVEGADOR && (
+          <li>
+            O en Windows: Configuración → Sistema → Pantalla → Configuración de gráficos. Deja «Aplicación de
+            escritorio» (la de Microsoft Store no sirve), pulsa <b>Examinar</b>, elige{' '}
+            <code className={codigo}>{NAVEGADOR.exe}</code> y luego <b>Agregar</b> → <b>Opciones</b> → <b>Alto rendimiento</b> → <b>Guardar</b>.
+          </li>
+        )}
+        {!bandera && <li>Elige tu navegador en la configuración de gráficos del sistema y ponlo en alto rendimiento.</li>}
+      </ol>
+      <div>Después cierra todas las ventanas del navegador y ábrelo de nuevo: este aviso desaparece cuando ya usa la dedicada.</div>
+    </div>
+  );
+};
+
+/** Por qué se abrió el panel, cuando fue porque a un pedido le faltó un modelo. */
+const AVISO_FALTA = {
+  voz: 'Falta el modelo de voz para usar audio sin conexión.',
+  texto: 'Para pedidos libres sin conexión hace falta un modelo de lenguaje.',
+  vista: 'Para leer fotos sin conexión hace falta Ollama con un modelo que vea imágenes.',
+};
+
+/** Una línea de la sugerencia: qué se usa, si ya está y por qué conviene en este equipo. */
+const ItemSugerido = ({ icono, titulo, nombre, listo, porque }) => (
+  <li className="flex gap-2">
+    <span className="w-5 shrink-0 text-center">{icono}</span>
+    <span className="min-w-0">
+      <span className="font-semibold text-gray-800">{titulo}:</span> {nombre}{' '}
+      {listo
+        ? <span className="whitespace-nowrap font-semibold text-green-700">✓ listo</span>
+        : <span className="whitespace-nowrap text-amber-700">falta</span>}
+      <span className="block text-gray-600">{porque}</span>
+    </span>
+  </li>
+);
 
 /**
  * Panel "IA sin internet": muestra qué puede usar este equipo, deja elegir el modelo según
  * la gráfica y la memoria, los descarga y permite forzar la IA local (por ejemplo, para la defensa).
  */
-export default function PanelIALocal({ onCerrar, onCambio }) {
+export default function PanelIALocal({ onCerrar, onCambio, falta = null }) {
   const [capacidades, setCapacidades] = useState(null);
   const [nivel, setNivel] = useState(null);
   const [claveTexto, setClaveTexto] = useState(null);
@@ -29,6 +98,10 @@ export default function PanelIALocal({ onCerrar, onCambio }) {
   const [ollama, setOllama] = useState(null);
   const [motorTexto, setMotorTexto] = useState(preferenciasIA().motorTexto || 'auto');
   const [modeloOllama, setModeloOllama] = useState(preferenciasIA().modeloOllama || '');
+  const [conVista, setConVista] = useState(null);
+  const sugerencia = useMemo(() => sugerenciaParaEquipo(capacidades, ollama), [capacidades, ollama]);
+  // ¿Ya están descargados los modelos SUGERIDOS? (pueden no ser los elegidos a mano)
+  const [sugeridoListo, setSugeridoListo] = useState({});
 
   const opcionTexto = CATALOGO_TEXTO.find((o) => o.clave === claveTexto) || null;
   const opcionVoz = CATALOGO_VOZ.find((o) => o.clave === claveVoz) || null;
@@ -66,6 +139,24 @@ export default function PanelIALocal({ onCerrar, onCambio }) {
     })();
     return () => { vivo = false; };
   }, [revisar]);
+
+  useEffect(() => {
+    if (!sugerencia) return undefined;
+    let vivo = true;
+    Promise.all([
+      modeloDescargado(configuracionDeVoz(sugerencia.voz.opcion, sugerencia.nivel)),
+      sugerencia.texto.motor === 'navegador' ? modeloDescargado(configuracionDeTexto(sugerencia.texto.opcion)) : false,
+    ]).then(([voz, texto]) => { if (vivo) setSugeridoListo({ voz, texto }); });
+    return () => { vivo = false; };
+  }, [sugerencia, estado]);
+
+  // ¿Ollama ya tiene un modelo que lea fotos? (para marcar ese paso de la sugerencia)
+  useEffect(() => {
+    let vivo = true;
+    setConVista(null);
+    if (ollama?.disponible) modelosConVista(ollama.modelos).then((l) => { if (vivo) setConVista(l); }).catch(() => vivo && setConVista([]));
+    return () => { vivo = false; };
+  }, [ollama]);
 
   const cambiarNivel = async (n) => {
     guardarPreferenciasIA({ nivel: n === capacidades?.recomendado ? undefined : n });
@@ -112,9 +203,8 @@ export default function PanelIALocal({ onCerrar, onCambio }) {
     onCambio?.();
   };
 
-  const preparar = async (tipo) => {
-    const config = configDe(tipo, claveTexto, claveVoz, nivel);
-    if (!config) return;
+  const preparar = async (tipo, config = configDe(tipo, claveTexto, claveVoz, nivel)) => {
+    if (!config) return false;
     setEstado((e) => ({ ...e, [tipo]: { cargando: true, progreso: 0 } }));
     try {
       await prepararModelo(tipo, config, (p) => setEstado((e) => ({
@@ -123,9 +213,34 @@ export default function PanelIALocal({ onCerrar, onCambio }) {
       })));
       setEstado((e) => ({ ...e, [tipo]: { listo: true } }));
       onCambio?.();
+      return true;
     } catch (error) {
       setEstado((e) => ({ ...e, [tipo]: { error: error.message } }));
+      return false;
     }
+  };
+
+  /**
+   * "Usar lo sugerido": vuelve a lo recomendado para este equipo (nivel, modelos y motor) y
+   * descarga lo que falte en el navegador, primero la voz (pesa poco) y después el de lenguaje.
+   */
+  const usarSugerido = async () => {
+    if (!sugerencia) return;
+    const n = sugerencia.nivel;
+    const cVoz = sugerencia.voz.opcion.clave;
+    const cTexto = textoRecomendado(capacidades, n);
+    guardarPreferenciasIA({ nivel: undefined, modeloVoz: undefined, modeloTexto: undefined, motorTexto: undefined });
+    setNivel(n);
+    setClaveVoz(cVoz);
+    setClaveTexto(cTexto);
+    setMotorTexto('auto');
+    onCambio?.();
+    const vozConfig = configDe('voz', cTexto, cVoz, n);
+    const textoConfig = sugerencia.texto.motor === 'navegador' ? configDe('texto', cTexto, cVoz, n) : null;
+    const [vozLista, textoListo] = await Promise.all([modeloDescargado(vozConfig), modeloDescargado(textoConfig)]);
+    setEstado({ voz: { listo: vozLista }, texto: { listo: textoListo } });
+    if (!vozLista && !(await preparar('voz', vozConfig))) return;
+    if (textoConfig && !textoListo) await preparar('texto', textoConfig);
   };
 
   /** Bloque de un modelo: selector de opciones, tamaño, estado y descarga. */
@@ -206,27 +321,81 @@ export default function PanelIALocal({ onCerrar, onCambio }) {
           IA en la nube:{' '}
           {nube === null ? 'comprobando…' : nube ? <span className="text-green-700 font-semibold">disponible</span> : <span className="text-amber-700 font-semibold">no disponible (se usa la IA local)</span>}
         </div>
-        {capacidades && (
-          <>
-            <div>
-              Tu equipo: WebGPU {capacidades.webgpu ? `sí${capacidades.f16 ? ' (f16)' : ''}` : 'no'}
-              {capacidades.memoriaGB ? ` · memoria ≥ ${capacidades.memoriaGB} GB` : ''}
-              {capacidades.nucleos ? ` · ${capacidades.nucleos} núcleos` : ''}
-              {capacidades.libreMB ? ` · ${Math.round(capacidades.libreMB / 1024)} GB libres para la app` : ''}
+        {/* Los componentes del equipo se muestran en la sugerencia, junto a lo que conviene usar */}
+        {usaGraficaIntegrada(capacidades) && <AvisoGraficaIntegrada />}
+      </div>
+
+      {sugerencia && (() => {
+        const { voz, texto, vista } = sugerencia;
+        const textoListo = texto.motor === 'ollama' ? texto.listo : sugeridoListo.texto;
+        const pendienteMB = (sugeridoListo.voz ? 0 : voz.mb) + (texto.motor === 'navegador' && !sugeridoListo.texto ? texto.mb : 0);
+        const enCurso = estado.voz.cargando ? estado.voz : estado.texto.cargando ? estado.texto : null;
+        // Algo elegido a mano que no es lo sugerido (otro nivel, otro modelo, "solo el navegador"...)
+        const difiere = nivel !== sugerencia.nivel || motorTexto !== 'auto' || claveVoz !== voz.opcion.clave
+          || (texto.motor === 'navegador' && claveTexto !== texto.opcion.clave);
+        const faltaOllama = texto.motor === 'ollama' && !texto.listo;
+        const sinInternet = nube === false && !navigator.onLine;
+        return (
+          <div className={`p-3 rounded-lg border space-y-2 ${falta ? 'border-amber-300 bg-amber-50' : 'border-violet-200 bg-violet-50/60'}`} data-tour="sugerencia-ia-local">
+            {falta && AVISO_FALTA[falta] && <div className="text-xs font-semibold text-amber-900">{AVISO_FALTA[falta]}</div>}
+            <div className="text-sm font-semibold text-violet-900">✨ Sugerido para tu equipo</div>
+            <div className="text-[11px] text-gray-600">
+              {sugerencia.equipo.join(' · ')}. {sugerencia.porqueNivel}
             </div>
-            {capacidades.adaptador && (
-              <div className="text-gray-500">Gráfica en uso: {capacidades.adaptador}</div>
+            <ul className="space-y-1.5 text-xs">
+              <ItemSugerido icono="🎙️" titulo="Voz a texto" nombre={`${voz.opcion.nombre} · ${voz.mb} MB`} listo={sugeridoListo.voz} porque={voz.porque} />
+              <ItemSugerido
+                icono="🧠"
+                titulo="Pedidos libres"
+                nombre={texto.motor === 'ollama'
+                  ? `Ollama · ${texto.modelo}${texto.gb ? ` · ≈ ${texto.gb} GB` : ''}`
+                  : `${texto.opcion.nombre} en el navegador · ${texto.mb} MB`}
+                listo={textoListo}
+                porque={`${texto.porque}${texto.alternativa ? ` Con Ollama (${texto.alternativa.modelo}) responde aún mejor.` : ''}`}
+              />
+              <ItemSugerido
+                icono="📷"
+                titulo="Leer fotos"
+                nombre={conVista?.length
+                  ? `Ollama · ${conVista[0].nombre}`
+                  : `Ollama · ${vista.modelo}${vista.gb ? ` · ≈ ${vista.gb} GB` : ''}`}
+                listo={Boolean(conVista?.length)}
+                porque={vista.porque}
+              />
+            </ul>
+            {pendienteMB > 0 || enCurso || difiere ? (
+              <button
+                type="button"
+                onClick={usarSugerido}
+                disabled={Boolean(enCurso) || (pendienteMB > 0 && sinInternet)}
+                className="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold disabled:opacity-60"
+              >
+                {enCurso ? `Descargando… ${Math.round((enCurso.progreso || 0) * 100)} %`
+                  : pendienteMB > 0 ? `⬇️ Usar lo sugerido y descargar (${pendienteMB} MB)`
+                    : '✨ Usar lo sugerido (ya está descargado)'}
+              </button>
+            ) : (
+              <div className="text-xs font-semibold text-green-700">✓ Ya usas lo sugerido y lo del navegador está descargado.</div>
             )}
-            {usaGraficaIntegrada(capacidades) && (
-              <div className="text-amber-700">
-                El navegador está usando la gráfica integrada. Si tu equipo tiene una dedicada (NVIDIA o AMD),
-                actívala para el navegador y la IA local irá mucho más rápida: Configuración de Windows → Sistema →
-                Pantalla → Gráficos → elige tu navegador → Alto rendimiento, y vuelve a abrirlo.
+            {faltaOllama && (
+              <button
+                type="button"
+                onClick={() => descargarGuion(guionConfigurar({ origen: window.location.origin, modelo: texto.modelo, modeloVista: vista.modelo, windows }))}
+                className="w-full px-3 py-2 rounded border border-violet-300 bg-white hover:bg-violet-50 text-violet-800 text-xs font-semibold"
+              >
+                ⬇️ Configurador de Ollama con {texto.modelo} ({windows ? 'configurar-ollama.bat' : 'configurar-ollama.sh'})
+              </button>
+            )}
+            {sinInternet && <div className="text-[11px] text-amber-800">Las descargas necesitan internet (una sola vez).</div>}
+            {pendienteMB > 0 && (
+              <div className="text-[11px] text-gray-600">
+                Lo descargado queda guardado en este navegador y para esta dirección: en otro navegador (Opera, Chrome…)
+                se descarga de nuevo. Ollama, en cambio, se instala una vez y sirve para todos.
               </div>
             )}
-          </>
-        )}
-      </div>
+          </div>
+        );
+      })()}
 
       <label className="block text-xs font-semibold text-gray-700">
         Dónde corre la IA local

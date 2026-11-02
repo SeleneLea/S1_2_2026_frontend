@@ -165,11 +165,17 @@ export const guionPermitirPagina = ({ origen, windows = true }) => {
   };
 };
 
-/** Elige el modelo instalado más adecuado: se prefieren los de instrucciones o código. */
+/**
+ * Elige el modelo instalado más adecuado para las órdenes de texto: se prefieren los de
+ * instrucciones o código y, entre ellos, los solo de texto (los que ven imágenes responden más
+ * lento y los de embeddings no conversan).
+ */
 export const modeloOllamaPorDefecto = (modelos = []) => {
   if (!modelos.length) return null;
-  const preferido = modelos.find((m) => /instruct|coder|llama3|qwen|mistral|phi/i.test(m.nombre));
-  return (preferido || modelos[0]).nombre;
+  const conversan = modelos.filter((m) => !/embed/i.test(m.nombre));
+  const deTexto = conversan.filter((m) => !NOMBRE_CON_VISTA.test(m.nombre));
+  const preferido = (lista) => lista.find((m) => /instruct|coder|llama3|qwen|mistral|phi/i.test(m.nombre));
+  return (preferido(deTexto) || deTexto[0] || preferido(conversan) || conversan[0] || modelos[0]).nombre;
 };
 
 // ------------------------------------------------------------------ modelos que ven imágenes
@@ -249,32 +255,76 @@ export const modeloVistaSugerido = (capacidades) => {
  */
 export const generarConOllama = async (mensajes, modelo, { temperatura = 0.2, maxTokens = 512 } = {}) => {
   const conImagen = mensajes.some((m) => Array.isArray(m.images) && m.images.length);
-  const respuesta = await consultar('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: modelo,
-      messages: mensajes,
-      stream: false,
-      options: { temperature: temperatura, num_predict: maxTokens },
-    }),
-  }, conImagen ? 420000 : 120000);
-  if (!respuesta.ok) {
-    const detalle = await respuesta.text().catch(() => '');
-    throw new Error(`Ollama no pudo responder (${respuesta.status}). ${detalle.slice(0, 120)}`);
+  // La respuesta llega por partes y la espera se cuenta desde la última: un 7B en un equipo sin
+  // gráfica dedicada tarda varios minutos en una revisión, pero mientras siga escribiendo no se
+  // corta (antes había un tope total de 2 minutos y fallaba con "signal is aborted").
+  const hastaLaPrimera = conImagen ? 420000 : 180000; // cargar el modelo y leer el pedido
+  const entrePartes = 60000;
+  const control = new AbortController();
+  let reloj = null;
+  const esperar = (ms) => {
+    clearTimeout(reloj);
+    reloj = setTimeout(() => control.abort(), ms);
+  };
+  let texto = '';
+  const leerLinea = (linea) => {
+    if (!linea.trim()) return;
+    const parte = JSON.parse(linea);
+    if (parte.error) throw new Error(`Ollama no pudo responder: ${String(parte.error).slice(0, 120)}`);
+    texto += parte.message?.content || '';
+  };
+  try {
+    esperar(hastaLaPrimera);
+    const respuesta = await fetch(`${URL_OLLAMA}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: modelo,
+        messages: mensajes,
+        stream: true,
+        options: { temperature: temperatura, num_predict: maxTokens },
+      }),
+      signal: control.signal,
+    });
+    if (!respuesta.ok) {
+      const detalle = await respuesta.text().catch(() => '');
+      throw new Error(`Ollama no pudo responder (${respuesta.status}). ${detalle.slice(0, 120)}`);
+    }
+    const lector = respuesta.body.getReader();
+    const decodificador = new TextDecoder();
+    let pendiente = '';
+    for (;;) {
+      const { done, value } = await lector.read();
+      if (done) break;
+      esperar(entrePartes);
+      pendiente += decodificador.decode(value, { stream: true });
+      const lineas = pendiente.split('\n');
+      pendiente = lineas.pop();
+      lineas.forEach(leerLinea);
+    }
+    leerLinea(pendiente + decodificador.decode());
+    return texto;
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(texto
+        ? `${modelo} dejó de escribir durante más de ${entrePartes / 1000} s`
+        : `${modelo} no empezó a responder en ${hastaLaPrimera / 60000} minutos (es pesado para este equipo: prueba uno más liviano en 💻 IA local)`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(reloj);
   }
-  const datos = await respuesta.json();
-  return datos.message?.content || '';
 };
 
 /**
  * Modelo recomendado para este equipo. Con gráfica dedicada y memoria de sobra vale la pena un
  * modelo de 7B; si no, uno de 3B o 1B, que responden rápido en equipos modestos.
+ * El navegador informa la memoria con un tope de 8 GB: "8" quiere decir "8 o más".
  */
 export const modeloSugeridoOllama = (capacidades) => {
   const memoriaGB = capacidades?.memoriaGB ?? 8;
   const dedicada = /nvidia|geforce|rtx|gtx|quadro|radeon rx|\barc\b|apple/i.test(capacidades?.adaptador || '');
-  if (dedicada && memoriaGB >= 16) return 'qwen2.5-coder:7b';
+  if (dedicada && memoriaGB >= 8) return 'qwen2.5-coder:7b';
   if (memoriaGB >= 8) return 'llama3.2:3b';
   return 'llama3.2:1b';
 };
@@ -387,6 +437,18 @@ export const guionConfigurar = ({ origen, modelo, modeloVista = null, windows = 
       '',
     ].join('\n'),
   };
+};
+
+/** Entrega un guion (configurador, permisos, modelos) como archivo descargado. */
+export const descargarGuion = (guion) => {
+  const url = URL.createObjectURL(new Blob([guion.contenido], { type: `${guion.tipo};charset=utf-8` }));
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = guion.nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  document.body.removeChild(enlace);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 };
 
 /** Compatibilidad: el instalador de antes es el configurador (también instala si falta). */
